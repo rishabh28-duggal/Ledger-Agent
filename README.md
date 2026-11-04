@@ -1,26 +1,8 @@
-# Ledger — AP Invoice Review Assistant
+# Ledger — invoice review with saved demo sessions
 
-Streamlit application for invoice-to-PO review, with Groq vision extraction, evidence, deterministic checks and explicit reviewer approval. Ready to deploy from this repository to Streamlit Community Cloud.
+The final feature interface is **Streamlit** (`streamlit_app.py`). The original FastAPI/HTML interface remains available for compatibility, but the saved-session browser, scorecard and batch screens are in Streamlit.
 
-## Deploy on Streamlit Community Cloud
-
-1. Open https://share.streamlit.io and choose **Create app**.
-2. Repository: `rishabh28-duggal/Ledger-Agent`.
-3. Branch: `main`.
-4. Main file path: `streamlit_app.py`.
-5. In **Advanced settings**, choose Python **3.12** and add secrets:
-
-```toml
-GROQ_API_KEY = "YOUR_GROQ_KEY"
-GROQ_MODEL = "qwen/qwen3.8-27b"
-```
-
-6. Deploy. The platform installs `requirements.txt` automatically. No separately hosted FastAPI server is needed for this interface.
-7. Use Community Cloud's app sharing settings to enable public viewing if desired. If you configure the optional `AP_ACCESS_TOKEN` secret, visitors must also enter that demo access code.
-
-Never put real API keys in GitHub. For local Streamlit use, the same values can go in `.streamlit/secrets.toml`, which is ignored. Gemini is an optional alternative via `GEMINI_API_KEY` and `GEMINI_MODEL`; local sample mode needs no API credentials.
-
-## Local run
+## Start locally
 
 ```powershell
 python -m pip install -r requirements.txt
@@ -29,84 +11,70 @@ $env:GROQ_MODEL="qwen/qwen3.8-27b"
 python -m streamlit run streamlit_app.py
 ```
 
-Or use `start.bat` / `start.sh` after configuring your server-side key. Streamlit normally opens http://localhost:8501.
+Open http://localhost:8501. Alternatively set server-side keys in `.streamlit/secrets.toml` (ignored by Git). Never commit keys. Optional `AP_ACCESS_TOKEN` adds an access-code gate.
 
-## How the workflow works
+## Saved review sessions
 
-Upload a PDF, select Groq vision, and click **Start review**. Actual stages update live: ingest, extract, completeness, vendor identification, PO matching, rule checks and recommendation. Results include the source PDF, field evidence, check findings and a vendor-email draft for review/copying. Nothing sends email or moves money.
+Use **New session name → Start new session** in the sidebar. Every session has its own SQLite database, vendor/PO snapshots, uploaded PDFs, approvals, audit history, scorecard and last-batch results. Previous sessions are preserved and can be reopened from **Saved review sessions**. Duplicate checks and consumed PO quantities/amounts are scoped to the selected demo session. Uploading the same PDF in a different session starts a separate test; uploading it twice in one session still triggers duplicate checks.
 
-AI extracts values. Code decides the recommendation using decimal arithmetic, rounding and price tolerances, line mappings, currency/date checks, vendor status, duplicates, accepted quantities and authorised monetary balances.
+Bookmark the URL including its `history` parameter. This random capability key reopens your collection after browser refresh or application restart. Anyone holding that history URL can access the collection: do not share private history URLs publicly. Different visitors without the same capability get independent collections. It is a demo capability system, not production user authentication. All users still consume the configured server provider quota.
 
-The automated recommendation (Ready for approval / Needs review / Blocked) is separate from reviewer acceptance. Click **Approve invoice** on a ready invoice to consume PO balance. Acceptance rechecks current balances in a transaction and records consumption once. Accepted records are read-only. Field corrections and PO selections are logged and run validation again.
+Archives default to `data/archive`. Set `LEDGER_ARCHIVE_DIR` to an absolute durable directory to put them elsewhere. Local records survive application restarts while that directory is retained. **Streamlit Community Cloud local storage is ephemeral**: these files are not guaranteed across reboots/redeployments. Use a host with a persistent volume for persistent history. External database/object-storage integration is not included. Export records before leaving an ephemeral deployment. Do not mistake session state for durable cloud storage.
 
-## Public demo state and storage
+No reset is needed to repeat the demo. Start a new session instead. Existing archives are never silently deleted.
 
-Each Streamlit browser session has a separate SQLite database and uploaded PDFs in a temporary server directory. Visitors' balances and invoices are isolated; they do not share a global queue. Session history survives normal interactions in that session but can disappear after refresh, disconnect, server restart or redeployment. Download **Export review records (JSON)** before leaving and download source PDFs separately as needed. The export is a record snapshot, not a restore facility.
+## Import invoices from the previous FastAPI installation
 
-Community Cloud local storage is not durable production storage. This is an interview/demo deployment. Shared persistent AP history across sessions/restarts requires an external transactional database and durable object storage. The UI states this limitation explicitly.
+Stop the old server first. Keep its `data` folder. In the new project run:
 
-Each workspace allows 30 submissions; **Show demo reset → Reset my workspace** removes that session's history and PDFs. It does not affect other sessions or remove source samples. Use synthetic documents for public demos. Configuring the provider key makes the public service use the owner's API quota.
-
-## Demo sequence
-
-Open **Demo documents**, select the intended reader, then run:
-
-1. `01_happy_60_chairs.pdf` → Ready for approval. Click **Approve invoice**. PO-1042 should show 60/100 chairs and ₹141,600 accepted against ₹236,000.
-2. `02_split_50_chairs.pdf` → Needs review: only 40 chairs and ₹94,400 remain.
-3. Upload the first PDF again → Blocked duplicate. Reruns of the original do not duplicate themselves.
-4. `06_ambiguous_po.pdf` → choose between two POs and rerun; a valid selection passes the remaining checks.
-5. `05_missing_information.pdf` → missing number/total, Needs review and an email draft.
-6. `09_scan_requires_gemini.pdf` → image-only PDF; despite its older filename, Groq reads it too. Missing/unreadable fields go to review.
-7. `03_original_duplicate.pdf` followed by `04_near_duplicate.pdf` → possible duplicate requiring review.
-
-The duplicate fixture uses ₹236,000 so its line arithmetic is consistent. All company names and GST identifiers are synthetic test data.
-
-## Reader limits
-
-- **Groq vision:** renders each page to a JPEG, sends all pages together to `qwen/qwen3.8-27b`, uses JSON mode and validates with Pydantic. Up to **3 pages**; larger documents fail before submission and are never silently truncated. Requires `GROQ_API_KEY`; `GROQ_MODEL` can select another compatible vision model available to your account.
-- **Gemini:** sends the PDF directly; up to 20 pages. Requires its own key and account/model capacity. Default is `gemini-3.8-flash` because 2.5 Flash is unavailable to new users.
-- **Local:** real PDF text parsing for the included labelled text invoices only. It is not AI extraction or general invoice OCR. Scans fail explicitly.
-
-Model confidence is self-reported, not calibrated. Missing critical-field evidence and low confidence trigger review. Groq error handling distinguishes quota/auth failures, truncated output, malformed JSON and invalid schema fields. No model is allowed to approve an invoice. Provider availability and extraction accuracy still require live testing.
-
-## Policies and limits
-
-Single company, INR, two-way invoice/PO matching. No goods receipts or delivery verification. Trusted vendor/PO masters. Up to ₹1 arithmetic rounding; absolute unit-price variance <=2% passes, >2–5% requires review, >5% high-severity review. Quantity and PO-value caps remain separate. Policy settings are in code. Dates use the server date and a 365-day window.
-
-Initial matching uses trusted identifiers, configured vendor aliases and line aliases. Unsupported item mappings, units, bundled items and unclear tax conventions stay in review. No legal GST verification, accepted-invoice reversals, duplicate overrides, model learning or payment execution. Reviewer identity is labelled Demo reviewer.
-
-## Existing FastAPI interface
-
-The original HTML interface and HTTP endpoints remain available for local development:
-
-```sh
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```powershell
+python scripts/import_history.py --source "E:\path\to\old-project\data" --name "Previous invoices"
 ```
 
-Its database defaults to `data/review.sqlite3` (override via `AP_DATA_DIR`). Unlike the Streamlit session workspaces, this is a shared installation-level database. The retained Dockerfile runs this original FastAPI interface. A persistent disk is required for durable data there. Streamlit reuses the same processing, rule checks and approval code in-process without launching a second server.
+The utility copies the SQLite database and available invoice PDFs into a saved session. It leaves the original files untouched and prints a local history URL. Open that URL to find the imported session. To add the import to an existing collection, also pass `--history-key` with the 32-character key from its bookmarked URL. Keep that key private. Scorecards and batches created in the older temporary Streamlit version are not migrated by this utility.
 
-## Tests
+## Review workflow and controls
+
+Upload a PDF and watch actual processing stages. AI extracts; deterministic code checks values and assigns Ready for approval / Needs review / Blocked. Accepting a ready invoice is a separate human action. Acceptance rechecks balances transactionally and consumes quantity/value once. Accepted invoices remain immutable.
+
+Every check includes a **Next action**, such as selecting a PO, verifying a field or requesting a corrected invoice. Email drafts reflect these actions. Confirming selected values against the PDF clears only their uncertainty flags and records an audit entry; it never bypasses financial rules.
+
+The review queue sorts by explainable priority: Critical for explicitly blocked vendors; High for confirmed/possible duplicates, quantity/value overruns and price variance over 5%; Medium for other review/deferred prerequisites; Low for checks without exceptions. Accepted records sort below pending work. These are workflow priorities, not calibrated fraud probabilities.
+
+## Batch upload
+
+Select one to five PDFs on **New invoice**. Files process sequentially. Each completed/failed result is saved. A provider cooldown stops submission of remaining files, which are marked Not submitted; completed invoices are preserved. The last-batch table and combined follow-up draft for each vendor appear on the queue. No email is sent automatically. Individual failed records support retry after the provider cooldown. A batch does not approve anything automatically.
+
+## Extraction scorecard
+
+Process a realistic fixture first, then open **Extraction scorecard**. Explicitly match an invoice run to its expected fixture and choose **Score original extraction**. The evaluation always uses the saved original extraction, before corrections/verification, and the answer key is never supplied to a provider.
+
+Per-field counts and aggregate accuracy cover invoice/vendor identifiers, amounts, tax rate, date, currency, tax basis and semantic line totals/quantities/prices. Equivalent lines across pages can be aggregated without double-counting. Decimal values compare exactly after Decimal parsing; identifiers ignore case/punctuation. Evidence quality and model confidence are not scored automatically. User-selected synthetic runs are not an independent production benchmark. Score associations are saved in the workspace and exportable as JSON.
+
+## Export
+
+**Export accepted invoices (CSV)** on the queue exports only accepted invoices in the selected session. Includes invoice number, vendor, date, currency, subtotal, tax, total, PO and record ID. Spreadsheet-formula-like text is escaped. This is a clean generic CSV, not certified Tally import compatibility. The JSON record export includes original extraction, decisions, corrections and approvals; source PDFs can be downloaded separately. Exports are not an import/restore system.
+
+## Document readers and policies
+
+Groq: `qwen/qwen3.8-27b`, renders every PDF page to JPEG, up to 3 pages. Gemini optional: native PDF, up to 20 pages. Local reader only parses the labelled basic samples, not varied layouts or scans. Provider availability/quotas require live testing. Groq obeys retry timing with bounded automatic waiting and persisted cooldowns.
+
+Use synthetic documents for demos. Clearly labelled specimen GSTINs and internal references are distinct; no legal registration/validity claim is made. Missing or uncertain fields stay in review. Arithmetic uses Decimal and INR 1 rounding. Unit-price variance <=2% passes; >2–5% review, >5% high-severity review. PO quantities and values have separate cumulative caps. Single company, INR, two-way invoice/PO match; no delivery confirmation, payment execution, tax-law advice or automatic sending.
+
+Real AP controls should check relevant historical obligations across periods. Isolated demo sessions intentionally reset duplicate and PO-balance scope for rehearsals; starting a real AP upload batch must not reset those controls.
+
+## Test pack
+
+See `test_pack/README.md` and `test_pack/answer_key.json`. Run R01 -> approve -> R02 -> R03 together. Test R04–R07 independently as documented. R06 must remain in review because its number/total are absent. Use a new named session to retest without deleting prior evidence. Earlier OCR mistakes and manual corrections must be included honestly in test results.
+
+## Deploy later
+
+The project has not been deployed by this update. Community Cloud entrypoint: `streamlit_app.py`, branch `main`, Python 3.12. Put provider credentials in Advanced settings → Secrets. For durable historical records choose persistent storage hosting instead of assuming Community Cloud has a persistent volume. The retained Dockerfile runs the legacy FastAPI interface; it does not launch the new Streamlit session interface.
+
+## Validation
 
 ```sh
 python -m pytest -q
 ```
 
-Tests include API workflows, PDF rendering, mocked model responses, duplicate handling, approval races/idempotency, isolated Streamlit workspaces, live local-reader review/acceptance/overrun through Streamlit AppTest, PO selection and field corrections. Model tests do not call paid APIs or establish extraction accuracy. Browser visual QA and live Community Cloud deployment must still be checked after deployment.
-
-The `samples/master.json` purchasing data and sample PDFs are versioned. Runtime `data/`, caches, databases and secret files are excluded. Removing mistakenly committed runtime files from the current branch does not erase earlier Git history.
-
-## Realistic extraction fixtures
-
-The [realistic test pack](test_pack/README.md) includes seven PDFs across three layouts, a two-page invoice, an image-only scan and an independent [answer key](test_pack/answer_key.json). In Streamlit, choose Demo documents -> Document set -> Realistic extraction test pack. Use an AI reader and the stated workspace setup. Never send the answer key to the extraction model.
-
-## Verify a correct value without changing it
-
-When the model flags a present field as uncertain, open the invoice and use **Verify uncertain fields**. Compare the displayed values with the PDF, select only the fields you checked, tick the source-confirmation checkbox, then choose **Confirm selected fields & rerun**. The recorded values stay unchanged. Only selected uncertainty flags are cleared; the original extraction, model confidence and human verification are preserved in the audit history. Every arithmetic, identity, duplicate, quantity and PO-value check runs again. This action does not approve the invoice or consume PO balance. Missing values require correction, accepted records remain read-only, and stale review runs cannot be verified. The retained HTML interface exposes the same action.
-
-## Fixture and provider cleanup
-
-Updated sample and realistic PDFs label synthetic GSTIN-format values separately from internal vendor references. The answer key and vendor master match them. These identifiers are format-only specimens, not verified or legally valid registrations. Use **Reset my workspace** when switching from older demo documents; this now also reloads the current vendor/PO fixtures. Old saved test invoices are not silently rewritten.
-
-When required amounts are absent, dependent reconciliation/PO-value checks say **Not evaluated**. Independent checks still run; a skipped required check keeps the invoice in Needs review.
-
-Groq retries now respect Retry-After or relevant rate-limit reset headers (60-second fallback for 429). The live run shows actual wait progress. At most two retries and 90 seconds of total automatic waiting are allowed. Longer or repeated rate limits stop with a saved retry time and disable early retry until that time. This cannot increase provider quota or guarantee success under continued shared demand.
+Tests exercise core invoice checks, corrections, approval, provider error handling, workspace isolation/reopening, original-only evaluation, CSV filtering, batch cooldowns and Streamlit interactions. Mocked provider tests do not establish live extraction accuracy. No production-grade identity, duplicate overrides, approval reversals, credit notes, email ingestion or ERP integration is included in this scope.

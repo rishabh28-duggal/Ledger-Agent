@@ -101,3 +101,23 @@ def test_streamlit_verify_correct_values_without_editing():
             assert record['data']['subtotal']==data['subtotal']
             assert not record['accepted']
             assert db.execute("SELECT COUNT(*) FROM reviews WHERE invoice_id=? AND action='verify_fields'",(id,)).fetchone()[0]==1
+
+def test_saved_workspace_reopen_and_scorecard():
+    at=AppTest.from_file(str(ROOT/'streamlit_app.py'),default_timeout=20).run()
+    first_id=Path(at.session_state.workspace).name;history=at.session_state.history_key
+    button(at,'Demo documents').click().run()
+    next(x for x in at.selectbox if x.label=='Document reader').select('local').run()
+    button(at,'Run sample review').click().run()
+    button(at,'Extraction scorecard').click().run()
+    button(at,'Score original extraction').click().run()
+    assert not at.exception
+    assert any(x.label=='Original extraction field accuracy' for x in at.metric)
+    next(x for x in at.text_input if x.label=='New session name').input('Second session')
+    button(at,'Start new session').click().run()
+    assert not at.exception and at.metric[0].value=='0'
+    next(x for x in at.selectbox if x.label=='Saved review sessions').select(first_id).run()
+    assert not at.exception and at.metric[0].value=='1'
+    reopened=AppTest.from_file(str(ROOT/'streamlit_app.py'),default_timeout=20)
+    reopened.query_params['history']=history;reopened.run()
+    next(x for x in reopened.selectbox if x.label=='Saved review sessions').select(first_id).run()
+    assert not reopened.exception and reopened.metric[0].value=='1'

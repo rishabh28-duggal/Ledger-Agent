@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 from app import store as s
 from app.domain import Invoice
+from app.features import owner_root,workspaces,new_workspace,workspace_path,priority,accepted_csv,evaluate_original,fix_for,run_batch
 from app.extract import read_pdf
 from app.review import pending_verifications, prepare_verification
 from app.main import process, approve, dashboard
@@ -41,8 +42,16 @@ if access and not st.session_state.get('access_granted'):
             else: st.error('Incorrect access code.')
     st.stop()
 
+# A capability key in the bookmarked URL isolates each visitor's durable history.
+if 'history_key' not in st.session_state:
+    key=st.query_params.get('history','')
+    if not __import__('re').fullmatch('[a-f0-9]{32}',key):key=uuid.uuid4().hex
+    st.session_state.history_key=key
+    st.query_params['history']=key
 if 'workspace' not in st.session_state:
-    st.session_state.workspace=tempfile.mkdtemp(prefix='ledger-demo-')
+    saved=workspaces(st.session_state.history_key)
+    path=workspace_path(st.session_state.history_key,saved[0]['id']) if saved else new_workspace(st.session_state.history_key,'First review session')
+    st.session_state.workspace=str(path)
     st.session_state.selected_invoice=None
     st.session_state.page='Review queue'
 
@@ -82,6 +91,7 @@ def ingest(raw,filename,mode):
     with s.connection() as db:
         db.execute('INSERT INTO invoices(id,filename,hash,mode,created,execution) VALUES(?,?,?,?,?,?)',(id,Path(filename).name,hashlib.sha256(raw).hexdigest(),mode,s.now(),'queued'))
     run_invoice(id)
+    return id
 
 def rerun_invoice(id,action,details,data=None,po=None):
     if action=='retry':
@@ -147,6 +157,7 @@ def detail_view(row):
                 symbol={'pass':'✓','review':'⚠','block':'✕','not_evaluated':'—'}[check['level']]
                 with st.expander(f"{symbol} {check['message']}"):
                     st.json(check['evidence'])
+                    st.info('Next action: '+check.get('fix',fix_for(check)))
             if result.get('email'):
                 with st.expander('Vendor email draft — not sent'):
                     st.text_area('Review and copy this draft',result['email'],height=220,disabled=True)
@@ -213,28 +224,40 @@ def detail_view(row):
                 for review in db.execute('SELECT * FROM reviews WHERE invoice_id=? ORDER BY seq',(row['id'],)):
                     st.write(review['action']+' · '+review['created']);st.json(json.loads(review['details']))
 
+@st.cache_resource
+def recover_saved_workspace(path):
+    with s.use_workspace(path):s.init()
+    return True
+
 def application():
-    if not s.db_path().exists(): s.init()
+    recover_saved_workspace(str(s.data_dir()))
     with st.sidebar:
         st.title('ledger.')
         st.caption('ACCOUNTS PAYABLE · DEMO')
-        pages=['Review queue','New invoice','Purchase orders','Demo documents','Invoice detail']
+        saved=workspaces(st.session_state.history_key)
+        ids=[m['id'] for m in saved]
+        selected=st.selectbox('Saved review sessions',ids,index=ids.index(Path(st.session_state.workspace).name),format_func=lambda id:next(m['name']+' · '+m['created'][:10] for m in saved if m['id']==id))
+        if selected!=Path(st.session_state.workspace).name:
+            st.session_state.workspace=str(workspace_path(st.session_state.history_key,selected))
+            st.session_state.selected_invoice=None;st.session_state.page='Review queue';st.session_state.pop('batch_summary',None);st.rerun()
+        with st.form('create_workspace'):
+            name=st.text_input('New session name',placeholder='Demo rehearsal 2')
+            if st.form_submit_button('Start new session'):
+                st.session_state.workspace=str(new_workspace(st.session_state.history_key,name))
+                st.session_state.selected_invoice=None;st.session_state.page='Review queue';st.session_state.pop('batch_summary',None);st.rerun()
+        pages=['Review queue','New invoice','Purchase orders','Demo documents','Extraction scorecard','Invoice detail']
         for destination in pages:
             if st.button(destination,key='nav_'+destination,type='primary' if st.session_state.page==destination else 'secondary',use_container_width=True):
                 st.session_state.page=destination;st.rerun()
         st.divider()
-        st.caption('Your workspace is private to this browser session. History may reset after refresh, disconnect, reboot or redeployment. Download an export before leaving.')
+        st.caption('Bookmark this URL to reopen your saved sessions. Anyone with the history link can access them. Local history survives restarts; hosted history needs a durable LEDGER_ARCHIVE_DIR mount.')
         st.caption('Recommendation only. No payment execution.')
         configured=[name for name,key in [('Groq','GROQ_API_KEY'),('Gemini','GEMINI_API_KEY')] if os.getenv(key)]
         st.caption('Configured readers: '+(', '.join(configured) or 'Local sample reader only'))
-        if st.checkbox('Show demo reset'):
-            if st.button('Reset my workspace',type='secondary'):
-                s.reset_demo_records()
-                st.session_state.selected_invoice=None;st.session_state.page='Review queue';notify('Your workspace was reset.');st.rerun()
     st.title('Invoice review')
     st.caption('From document to decision, with the evidence to back it up.')
     if st.session_state.get('flash'):st.info(st.session_state.pop('flash'))
-    snapshot=dashboard();rows=snapshot['invoices']
+    snapshot=dashboard();rows=sorted(snapshot['invoices'],key=lambda r:priority(r['result'])[1] if not r['accepted'] else 0,reverse=True)
     if any(v.get('gstin','').startswith('DEMO-') for v in snapshot['vendors']):
         st.warning('This workspace has older demo GSTINs. To use the updated PDFs, choose Show demo reset → Reset my workspace. This clears this workspace’s invoices and reloads the current vendor/PO fixtures.')
     accepted=sum(bool(r['accepted']) for r in rows)
@@ -242,15 +265,24 @@ def application():
     for col,label,value in zip(cols,['Total invoices','Ready for approval','Needs review','Accepted'],[len(rows),sum(not r['accepted'] and (r['result'] or {}).get('status')=='Ready for approval' for r in rows),sum((r['result'] or {}).get('status')=='Needs review' for r in rows),accepted]):col.metric(label,value)
     page=st.session_state.page
     if page=='Review queue':
+        batchfile=s.data_dir()/'last_batch.json'
+        if batchfile.exists():
+            batch=json.loads(batchfile.read_text())
+            st.markdown('#### Last batch results');st.dataframe(batch['summary'],hide_index=True,use_container_width=True)
+            for vendor,requests in batch.get('vendor_followups',{}).items():
+                with st.expander('Combined vendor follow-up: '+vendor):
+                    draft='Subject: Invoice review clarifications\n\nHello,\nPlease help resolve these findings:\n\n'+'\n\n'.join(requests)+'\n\nThank you,\nAccounts Payable'
+                    st.text_area('Draft only; no email is sent',draft,height=220,key='vendor_email_'+vendor)
         if not rows:st.info('Upload an invoice or start with a demo document.')
         else:
             status_filter=st.selectbox('Filter',['All','Ready for approval','Needs review','Blocked','Accepted','failed'])
             visible=[r for r in rows if status_filter=='All' or (('Accepted' if r['accepted'] else (r['result'] or {}).get('status',r['execution']))==status_filter)]
-            st.dataframe([{'Invoice':(r['data'] or {}).get('invoice_no') or r['filename'],'Vendor':(r['data'] or {}).get('vendor'),'Amount':money((r['data'] or {}).get('total')),'PO':r['po'],'Status':'Accepted' if r['accepted'] else (r['result'] or {}).get('status',r['execution']),'Received':r['created']} for r in visible],use_container_width=True,hide_index=True)
+            st.dataframe([{'Priority':priority(r['result'])[0],'Invoice':(r['data'] or {}).get('invoice_no') or r['filename'],'Vendor':(r['data'] or {}).get('vendor'),'Amount':money((r['data'] or {}).get('total')),'PO':r['po'],'Status':'Accepted' if r['accepted'] else (r['result'] or {}).get('status',r['execution']),'Received':r['created']} for r in visible],use_container_width=True,hide_index=True)
             if visible:
                 id=st.selectbox('Open invoice',[r['id'] for r in visible],format_func=lambda id:next(((r['data'] or {}).get('invoice_no') or r['filename'])+' · '+id[:6] for r in visible if r['id']==id))
                 if st.button('View invoice'):
                     st.session_state.selected_invoice=id;st.session_state.page='Invoice detail';st.rerun()
+            st.download_button('Export accepted invoices (CSV)',accepted_csv(rows),file_name='accepted-invoices.csv',mime='text/csv')
             st.download_button('Export review records (JSON)',s.dumps(rows),file_name='ledger-review-export.json',mime='application/json')
     elif page in ['New invoice','Demo documents']:
         readers=['groq','gemini','local'];default=0 if os.getenv('GROQ_API_KEY') else 1 if os.getenv('GEMINI_API_KEY') else 2
@@ -258,9 +290,13 @@ def application():
         if mode=='local':st.caption('Local mode only parses the labelled sample text PDFs. Varied layouts and scans require an AI reader.')
         else:st.caption('The selected provider receives your document/pages for extraction. Use synthetic invoices in this public demo.')
         if page=='New invoice':
-            file=st.file_uploader('Upload invoice PDF',type=['pdf'])
-            if st.button('Start review',type='primary',disabled=file is None):
-                ingest(file.getvalue(),file.name,mode);st.rerun()
+            files=st.file_uploader('Upload up to five invoice PDFs',type=['pdf'],accept_multiple_files=True)
+            if st.button('Start review',type='primary',disabled=not files):
+                if len(files)>5:st.error('Select at most five PDFs.')
+                else:
+                    batch=run_batch([(f.name,f.getvalue()) for f in files],lambda raw,name:ingest(raw,name,mode),load,s.retry_remaining)
+                    (s.data_dir()/'last_batch.json').write_text(s.dumps(batch))
+                    st.session_state.page='Review queue';st.rerun()
         else:
             st.info('Run 01 and explicitly approve it before running 02. Then test duplicates, the ambiguous PO and scan.')
             pack=st.selectbox('Document set',['Basic workflow samples','Realistic extraction test pack'])
@@ -273,6 +309,28 @@ def application():
                 if st.button('Run sample review',type='primary'):
                     ingest(selected.read_bytes(),selected.name,mode);st.rerun()
             with b:st.download_button('Download sample PDF',selected.read_bytes(),file_name=selected.name,mime='application/pdf')
+    elif page=='Extraction scorecard':
+        st.caption('Measures original extraction before corrections. Match each run to a fixture explicitly; the answer key is never sent to a model.')
+        cases=json.loads((s.ROOT/'test_pack/answer_key.json').read_text())['cases']
+        eligible=[r for r in rows if r['original']]
+        if not eligible:st.info('Process a realistic invoice first.')
+        else:
+            chosen=st.selectbox('Extraction run',[r['id'] for r in eligible],format_func=lambda id:next(r['filename']+' · '+id[:6] for r in eligible if r['id']==id))
+            case=st.selectbox('Expected fixture',cases,format_func=lambda c:Path(c['file']).name)
+            record=next(r for r in eligible if r['id']==chosen)
+            scorefile=s.data_dir()/'scorecard.json'
+            scores=json.loads(scorefile.read_text()) if scorefile.exists() else {}
+            if st.button('Score original extraction'):
+                scores[chosen]={'fixture':case['file'],'fields':evaluate_original(record['original'],case['expected_extraction'])}
+                scorefile.write_text(s.dumps(scores))
+            selected=[v for key,v in scores.items() if key in {r['id'] for r in rows}]
+            observations=[field for value in selected for field in value['fields']]
+            if observations:
+                st.metric('Original extraction field accuracy',f"{sum(f['correct'] for f in observations)/len(observations):.1%}")
+                st.caption(f'{len(selected)} scored runs; user-selected synthetic fixtures, not an independent production benchmark.')
+                st.dataframe([{'Field':name,'Correct':sum(f['correct'] for f in observations if f['field']==name),'Evaluated':sum(f['field']==name for f in observations)} for name in sorted({f['field'] for f in observations})],hide_index=True)
+                st.json(selected)
+                st.download_button('Export scorecard',s.dumps(selected),file_name='extraction-scorecard.json',mime='application/json')
     elif page=='Purchase orders':
         st.caption('Only accepted invoices consume quantity and authorised value.')
         for po in snapshot['pos']:

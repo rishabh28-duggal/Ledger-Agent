@@ -41,9 +41,12 @@ def serial(x):
 
 def evaluate(inv: Invoice, vendors, pos, history, current_id, file_hash, selected_po=None, today=None):
     today = today or date.today()
+    from .features import fix_for
     checks=[]
     def add(code, level, message, **evidence):
-        checks.append(dict(code=code, level=level, message=message, evidence=serial(evidence)))
+        check=dict(code=code, level=level, message=message, evidence=serial(evidence))
+        check['fix']=fix_for(check)
+        checks.append(check)
     for f in ['vendor','invoice_no','date','currency','total']:
         if getattr(inv,f) is None or getattr(inv,f)=='': add('missing_'+f,'review',f'Required field missing: {f}.',field=f)
     for f in inv.uncertain_fields:
@@ -141,5 +144,5 @@ def evaluate(inv: Invoice, vendors, pos, history, current_id, file_hash, selecte
             add('price_'+str(i),'pass' if variance<=Decimal('.02') else 'review','Unit-price comparison: '+('within policy.' if variance<=Decimal('.02') else 'high-severity dispute.' if variance>Decimal('.05') else 'minor variance.'),expected=expected,observed=actual,variance_percent=variance*100)
     status='Blocked' if any(c['level']=='block' for c in checks) else 'Needs review' if any(c['level'] in ['review','not_evaluated'] for c in checks) else 'Ready for approval'
     issues=[c['message'] for c in checks if c['level'] in ['review','block','not_evaluated']]
-    email=('Subject: Clarification required — invoice '+(inv.invoice_no or '(number missing)')+'\n\nHello,\nPlease help resolve the following before we can complete invoice review:\n'+ '\n'.join('- '+x for x in issues)+'\n\nThank you,\nAccounts Payable') if issues else None
+    email=('Subject: Clarification required — invoice '+(inv.invoice_no or '(number missing)')+'\n\nHello,\nPlease help resolve the following before we can complete invoice review:\n'+ '\n'.join('- '+c['message']+' Next action: '+c['fix'] for c in checks if c['level'] in ['review','block','not_evaluated'])+'\n\nThank you,\nAccounts Payable') if issues else None
     return serial(dict(status=status,checks=checks,vendor_id=vendor['id'] if vendor else None,po=po['number'] if po else None,candidates=candidates,mappings=mappings,summary=' '.join(issues) if issues else 'All required checks passed. Awaiting reviewer approval.',email=email))
