@@ -71,3 +71,33 @@ def test_streamlit_po_selection_and_correction():
     button(at,'Save corrections & rerun').click().run()
     assert not at.exception
     assert any(x.value=='Ready for approval' for x in at.success)
+
+def test_streamlit_verify_correct_values_without_editing():
+    at=AppTest.from_file(str(ROOT/'streamlit_app.py'),default_timeout=20).run()
+    button(at,'Demo documents').click().run()
+    next(x for x in at.selectbox if x.label=='Document reader').select('local').run()
+    next(x for x in at.selectbox if x.label=='Demo invoice').select(ROOT/'samples/06_ambiguous_po.pdf').run()
+    button(at,'Run sample review').click().run()
+    button(at,'Select PO & rerun').click().run()
+    id=at.session_state.selected_invoice
+    with s.use_workspace(at.session_state.workspace):
+        with s.connection() as db:
+            record=s.get(db,id);data=record['data'];data['uncertain_fields']=['date','tax_basis','subtotal','tax']
+            for field in data['uncertain_fields']:data['evidence'][field]={'page':1,'snippet':'Source excerpt','confidence':'medium'}
+            db.execute('UPDATE invoices SET data=?,original=? WHERE id=?',(s.dumps(data),s.dumps(data),id))
+        asyncio.run(process(id,True))
+    at.run()
+    assert any(x.value=='Needs review' for x in at.warning)
+    next(x for x in at.multiselect if x.label=='Fields verified against source PDF').set_value(['date','tax_basis','subtotal','tax'])
+    button(at,'Confirm selected fields & rerun').click().run()
+    assert any('tick the confirmation' in x.value for x in at.warning)
+    next(x for x in at.checkbox if x.label.startswith('I compared')).check()
+    button(at,'Confirm selected fields & rerun').click().run()
+    assert not at.exception
+    assert any(x.value=='Ready for approval' for x in at.success)
+    with s.use_workspace(at.session_state.workspace):
+        with s.connection() as db:
+            record=s.get(db,id)
+            assert record['data']['subtotal']==data['subtotal']
+            assert not record['accepted']
+            assert db.execute("SELECT COUNT(*) FROM reviews WHERE invoice_id=? AND action='verify_fields'",(id,)).fetchone()[0]==1

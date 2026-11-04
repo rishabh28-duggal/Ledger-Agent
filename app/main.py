@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from . import store as s
 from .domain import Invoice, evaluate
 from .extract import extract,read_pdf
+from .review import prepare_verification
 
 @asynccontextmanager
 async def lifespan(app):
@@ -129,6 +130,20 @@ def editable(db,id):
     if row['accepted']: raise HTTPException(409,'Accepted invoices are read-only.')
     if row['execution'] in ['running','queued']: raise HTTPException(409,'Wait for the active run to finish.')
     return row
+class FieldVerification(BaseModel):
+    fields: list[str] = Field(min_length=1,max_length=11)
+    expected_run: int = Field(ge=1)
+    confirmed_against_source: bool
+
+@app.post('/api/invoices/{id}/verify-fields')
+async def verify_fields(id:str,verification:FieldVerification):
+    if not verification.confirmed_against_source:
+        raise HTTPException(400,'Confirm that you compared the selected values with the source PDF.')
+    try: prepare_verification(id,verification.fields,verification.expected_run)
+    except ValueError as error: raise HTTPException(409,str(error)) from None
+    asyncio.create_task(process(id,True))
+    return {'id':id}
+
 @app.post('/api/invoices/{id}/correct')
 async def correct(id:str,edit:Edit):
     with s.connection() as db:

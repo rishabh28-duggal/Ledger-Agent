@@ -98,3 +98,7 @@ The `samples/master.json` purchasing data and sample PDFs are versioned. Runtime
 ## Realistic extraction fixtures
 
 The [realistic test pack](test_pack/README.md) includes seven PDFs across three layouts, a two-page invoice, an image-only scan and an independent [answer key](test_pack/answer_key.json). In Streamlit, choose Demo documents -> Document set -> Realistic extraction test pack. Use an AI reader and the stated workspace setup. Never send the answer key to the extraction model.
+
+## Verify a correct value without changing it
+
+When the model flags a present field as uncertain, open the invoice and use **Verify uncertain fields**. Compare the displayed values with the PDF, select only the fields you checked, tick the source-confirmation checkbox, then choose **Confirm selected fields & rerun**. The recorded values stay unchanged. Only selected uncertainty flags are cleared; the original extraction, model confidence and human verification are preserved in the audit history. Every arithmetic, identity, duplicate, quantity and PO-value check runs again. This action does not approve the invoice or consume PO balance. Missing values require correction, accepted records remain read-only, and stale review runs cannot be verified. The retained HTML interface exposes the same action.

@@ -15,6 +15,7 @@ from pydantic import ValidationError
 from app import store as s
 from app.domain import Invoice
 from app.extract import read_pdf
+from app.review import pending_verifications, prepare_verification
 from app.main import process, approve, dashboard
 
 st.set_page_config(page_title='Ledger | Invoice Review', page_icon='📋',layout='wide')
@@ -154,6 +155,26 @@ def detail_view(row):
             if st.button('Retry processing',key='retry_'+row['id']):
                 rerun_invoice(row['id'],'retry',{});st.rerun()
         if data:
+            confirmable=pending_verifications(data)
+            if confirmable and not row['accepted'] and row['execution']=='completed':
+                st.markdown('#### Verify uncertain fields')
+                st.caption('Compare the values with the PDF on the right. Confirm only values you can read clearly. All invoice and PO rules will run again.')
+                for field in confirmable:
+                    evidence=data.get('evidence',{}).get(field) or {}
+                    st.write(f"**{field.replace('_',' ').title()}:** {data[field]}")
+                    if isinstance(evidence,dict):
+                        st.caption(f"Source page {evidence.get('page') or '?'} · {evidence.get('snippet') or 'No model source snippet'}")
+                with st.form('verify_fields_'+row['id']+'_'+str(row['run'])):
+                    selected=st.multiselect('Fields verified against source PDF',confirmable,format_func=lambda field:field.replace('_',' ').title())
+                    compared=st.checkbox('I compared the selected values with the source PDF and confirm they are correct.')
+                    if st.form_submit_button('Confirm selected fields & rerun'):
+                        if not compared: st.warning('Compare the selected values with the PDF and tick the confirmation first.')
+                        elif not selected: st.warning('Select the fields you verified.')
+                        else:
+                            prepare_verification(row['id'],selected,expected_run=row['run'])
+                            run_invoice(row['id'],rerun=True)
+                            notify('Selected fields verified and logged. All invoice and PO checks have been rerun.')
+                            st.rerun()
             with st.expander('Extracted fields and source evidence'):
                 st.json(data)
             if not row['accepted']:
