@@ -1,0 +1,135 @@
+{
+  "vendors": [
+    {
+      "id": "acme",
+      "name": "Acme Furniture Private Limited",
+      "aliases": [
+        "Acme Furniture",
+        "Acme Furniture Pvt Ltd"
+      ],
+      "gstin": "DEMO-ACME-001",
+      "status": "approved"
+    },
+    {
+      "id": "orbit",
+      "name": "Orbit Office Supplies",
+      "aliases": [
+        "Orbit Office"
+      ],
+      "gstin": "DEMO-ORBIT-002",
+      "status": "approved"
+    },
+    {
+      "id": "nova",
+      "name": "Nova Equipment",
+      "aliases": [],
+      "gstin": "DEMO-NOVA-003",
+      "status": "approved"
+    },
+    {
+      "id": "blocked",
+      "name": "Blocked Trading",
+      "aliases": [],
+      "gstin": "DEMO-BLOCKED",
+      "status": "blocked"
+    }
+  ],
+  "pos": [
+    {
+      "number": "PO-1042",
+      "vendor_id": "acme",
+      "status": "open",
+      "currency": "INR",
+      "date": "2026-11-03",
+      "tax_basis": "exclusive",
+      "tax_rate": 18,
+      "total": "236000.0",
+      "lines": [
+        {
+          "id": "PO-1042-1",
+          "item": "Office chair",
+          "aliases": [
+            "office chair"
+          ],
+          "qty": 100,
+          "price": 2000,
+          "tax_basis": "exclusive",
+          "tax_rate": 18,
+          "unit": "each"
+        }
+      ]
+    },
+    {
+      "number": "PO-2001",
+      "vendor_id": "orbit",
+      "status": "open",
+      "currency": "INR",
+      "date": "2026-11-03",
+      "tax_basis": "exclusive",
+      "tax_rate": 18,
+      "total": "1180000.0",
+      "lines": [
+        {
+          "id": "PO-2001-1",
+          "item": "Laptop stand",
+          "aliases": [
+            "laptop stand"
+          ],
+          "qty": 1000,
+          "price": 1000,
+          "tax_basis": "exclusive",
+          "tax_rate": 18,
+          "unit": "each"
+        }
+      ]
+    },
+    {
+      "number": "PO-3001",
+      "vendor_id": "nova",
+      "status": "open",
+      "currency": "INR",
+      "date": "2026-11-03",
+      "tax_basis": "exclusive",
+      "tax_rate": 18,
+      "total": "1180000.0",
+      "lines": [
+        {
+          "id": "PO-3001-1",
+          "item": "Monitor",
+          "aliases": [
+            "monitor"
+          ],
+          "qty": 100,
+          "price": 10000,
+          "tax_basis": "exclusive",
+          "tax_rate": 18,
+          "unit": "each"
+        }
+      ]
+    },
+    {
+      "number": "PO-3002",
+      "vendor_id": "nova",
+      "status": "open",
+      "currency": "INR",
+      "date": "2026-11-03",
+      "tax_basis": "exclusive",
+      "tax_rate": 18,
+      "total": "944000.0",
+      "lines": [
+        {
+          "id": "PO-3002-1",
+          "item": "Monitor",
+          "aliases": [
+            "monitor"
+          ],
+          "qty": 80,
+          "price": 10000,
+          "tax_basis": "exclusive",
+          "tax_rate": 18,
+          "unit": "each"
+        }
+      ]
+    }
+  ]
+}
