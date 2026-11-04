@@ -6,6 +6,10 @@ import os
 import secrets
 import tempfile
 import uuid
+import time
+from html import escape
+from ui.theme import apply_theme
+from ui.components import money, pill, STAGES, fields_table, show_finding, audit_timeline, timestamp, queue_rank, problem_message
 from pathlib import Path
 
 import streamlit as st
@@ -19,7 +23,9 @@ from app.extract import read_pdf
 from app.review import pending_verifications, prepare_verification
 from app.main import process, approve, dashboard
 
-st.set_page_config(page_title='Ledger | Invoice Review', page_icon='📋',layout='wide')
+st.set_page_config(page_title='Ledger | Invoice Review', layout='wide')
+
+apply_theme()
 
 @st.cache_resource
 def configure_providers():
@@ -55,9 +61,6 @@ if 'workspace' not in st.session_state:
     st.session_state.selected_invoice=None
     st.session_state.page='Review queue'
 
-def money(value):
-    return f'₹{float(value or 0):,.2f}'
-
 def load(id):
     with s.connection() as db: return s.get(db,id)
 
@@ -65,17 +68,21 @@ def notify(message):
     st.session_state.flash=message
 
 def run_invoice(id,rerun=False):
-    names={'ingest':'Receive & fingerprint','extract':'Read invoice','completeness':'Check required fields','vendor':'Identify vendor','po':'Match purchase order','checks':'Check rules and balances','decision':'Record recommendation'}
+    started=time.monotonic()
     with st.status('Review in progress',expanded=True) as status:
-        stage_boxes={}
+        stage_boxes={stage:st.empty() for stage in STAGES}
+        states={stage:'Waiting' for stage in STAGES}
+        def paint(stage,message=''):
+            symbol={'Waiting':'○','Running':'…','Done':'✓','Failed':'×'}[states[stage]]
+            stage_boxes[stage].html(f'<div class="stage"><span>{symbol} {states[stage]}</span> {escape(STAGES[stage])}<br>{escape(message)}</div>')
+        for stage in STAGES:paint(stage)
         def event(stage,state,payload):
-            if stage not in stage_boxes: stage_boxes[stage]=st.empty()
-            symbol={'running':'⏳','done':'✓','failed':'✕'}[state]
-            stage_boxes[stage].write(f"{symbol} {names[stage]} — {payload.get('message') or state}")
-            if state=='failed': st.error(payload['error'])
+            states[stage]={'running':'Running','done':'Done','failed':'Failed'}[state]
+            message=payload.get('message') or payload.get('error') or ''
+            paint(stage,f'{message}  Elapsed: {int(time.monotonic()-started)} seconds')
         asyncio.run(process(id,rerun,on_event=event))
         row=load(id)
-        status.update(label='Review complete' if row['execution']=='completed' else 'Processing failed — see details',state='complete' if row['execution']=='completed' else 'error',expanded=True)
+        status.update(label='Review complete' if row['execution']=='completed' else 'Review interrupted; document saved',state='complete' if row['execution']=='completed' else 'error',expanded=True)
     st.session_state.selected_invoice=id
     st.session_state.page='Invoice detail'
 
@@ -85,7 +92,7 @@ def ingest(raw,filename,mode):
     read_pdf(raw)
     with s.connection() as db:
         if db.execute('SELECT COUNT(*) FROM invoices').fetchone()[0]>=30:
-            raise ValueError('This demo workspace has 30 submissions. Reset your workspace before adding more.')
+            raise ValueError('This demo workspace has 30 submissions. Start a new review session before adding more.')
     id=uuid.uuid4().hex
     (s.data_dir()/(id+'.pdf')).write_bytes(raw)
     with s.connection() as db:
@@ -128,44 +135,55 @@ def source_view(row):
 def detail_view(row):
     if not row: st.info('Select an invoice from the review queue.');return
     data=row['data'] or {};result=row['result']
-    st.subheader(data.get('invoice_no') or row['filename'])
-    st.caption(f"{data.get('vendor') or 'Vendor unresolved'} · {money(data.get('total'))} · {row['mode'].upper()} reader · Run {row['run']}")
-    left,right=st.columns([1.05,1],gap='large')
-    with right:
-        st.markdown('#### Source document');source_view(row)
+    st.title(data.get('invoice_no') or row['filename'])
+    header,amount=st.columns([3,1])
+    with header:st.write(data.get('vendor') or 'Vendor unresolved')
+    with amount:st.html(f'<div class="amount">{escape(money(data.get("total")))}</div>')
+    if result:
+        findings=[c for c in result['checks'] if c['level']!='pass']
+        st.write(problem_message(findings[0]) if findings else 'All required checks passed; review the source PDF before approving.')
+    left,right=st.columns([1.15,1],gap='large')
     with left:
         if row['accepted']: st.success('Accepted by Demo reviewer. PO balance recorded once. This invoice is read-only.')
         if result:
             status=result['status']
-            {'Ready for approval':st.success,'Needs review':st.warning,'Blocked':st.error}[status](status)
-            st.write(result['summary'])
-            if status=='Ready for approval' and not row['accepted']:
-                if st.button('Approve invoice',type='primary',key='approve_'+row['id']):
-                    response=approve(row['id'])
-                    if isinstance(response,JSONResponse):
-                        notify(json.loads(response.body)['detail'])
-                    else: notify('Invoice accepted. PO balance updated once.')
-                    st.rerun()
+            issues=[c for c in result['checks'] if c['level']!='pass']
+            displayed='Accepted' if row['accepted'] else status
+            action='Invoice approved' if row['accepted'] else ('Approve invoice' if status=='Ready for approval' else f'Resolve {len(issues)} issues first' if status=='Needs review' else 'Approval blocked; resolve the findings below')
+            style={'Ready for approval':'ready','Needs review':'review','Blocked':'blocked'}[status]
+            st.html(f'<section class="decision {style}">{pill(displayed)}<p><strong>{escape(action)}</strong></p></section>')
+            enabled=status=='Ready for approval' and not row['accepted']
+            if not enabled:st.caption('Approval unavailable: '+('this invoice has already been accepted.' if row['accepted'] else 'the findings below must be resolved.'))
+            if st.button('Approve invoice',type='primary',key='approve_'+row['id'],disabled=not enabled):
+                response=approve(row['id'])
+                if isinstance(response,JSONResponse):notify(json.loads(response.body)['detail'])
+                else:notify('Invoice accepted. PO balance updated once.')
+                st.rerun()
+            st.subheader('What needs attention')
+            if not issues:st.write('All required checks passed. Review the source before approval.')
+            for index,check in enumerate(issues):
+                show_finding(check)
+                original=check.get('evidence',{}).get('original_id')
+                if original and st.button('Open original invoice',key=f'original_{row["id"]}_{index}'):
+                    st.session_state.selected_invoice=original;st.rerun()
             if result.get('candidates') and len(result['candidates'])>1 and not row['accepted']:
                 st.caption('Choose the intended purchasing record; selection still runs all checks.')
                 with st.form('po_selection'):
                     po=st.selectbox('Purchase order',result['candidates'])
                     if st.form_submit_button('Select PO & rerun'):
                         rerun_invoice(row['id'],'select_po',{'after':po},po=po);st.rerun()
-            st.markdown('#### Checks and evidence')
-            for check in result['checks']:
-                symbol={'pass':'✓','review':'⚠','block':'✕','not_evaluated':'—'}[check['level']]
-                with st.expander(f"{symbol} {check['message']}"):
-                    st.json(check['evidence'])
-                    st.info('Next action: '+check.get('fix',fix_for(check)))
+            passed=[c for c in result['checks'] if c['level']=='pass']
+            with st.expander(f'Checks that passed ({len(passed)})'):
+                for check in passed:st.write('✓ '+check['message'])
             if result.get('email'):
-                with st.expander('Vendor email draft — not sent'):
-                    st.text_area('Review and copy this draft',result['email'],height=220,disabled=True)
+                st.subheader('Vendor email draft')
+                st.caption('Draft only. No email is sent. Use the copy control in the draft box.')
+                st.code(result['email'],language=None)
         elif row['execution']=='failed':
-            st.error('Processing failed. This is separate from an invoice rejection.')
+            st.error('The review could not finish. Your document was saved. Retry processing when the provider is available.')
             with s.connection() as db:
                 failure=db.execute("SELECT payload FROM events WHERE invoice_id=? AND state='failed' ORDER BY seq DESC LIMIT 1",(row['id'],)).fetchone()
-            if failure: st.write(json.loads(failure[0]))
+            if failure: st.write(json.loads(failure[0]).get('error','The document could not be read. Check the provider configuration and retry.'))
             remaining=s.retry_remaining(row['id'])
             if remaining:
                 st.warning(f'Provider rate limit: retry available in about {remaining} seconds.')
@@ -175,13 +193,14 @@ def detail_view(row):
         if data:
             confirmable=pending_verifications(data)
             if confirmable and not row['accepted'] and row['execution']=='completed':
-                st.markdown('#### Verify uncertain fields')
+                st.html('<span id="verify-fields"></span>')
+                st.subheader('Verify uncertain fields')
                 st.caption('Compare the values with the PDF on the right. Confirm only values you can read clearly. All invoice and PO rules will run again.')
                 for field in confirmable:
                     evidence=data.get('evidence',{}).get(field) or {}
                     st.write(f"**{field.replace('_',' ').title()}:** {data[field]}")
                     if isinstance(evidence,dict):
-                        st.caption(f"Source page {evidence.get('page') or '?'} · {evidence.get('snippet') or 'No model source snippet'}")
+                        st.caption(f"Source page {evidence.get('page') or '?'}: {evidence.get('snippet') or 'No model source snippet'}")
                 with st.form('verify_fields_'+row['id']+'_'+str(row['run'])):
                     selected=st.multiselect('Fields verified against source PDF',confirmable,format_func=lambda field:field.replace('_',' ').title())
                     compared=st.checkbox('I compared the selected values with the source PDF and confirm they are correct.')
@@ -193,8 +212,10 @@ def detail_view(row):
                             run_invoice(row['id'],rerun=True)
                             notify('Selected fields verified and logged. All invoice and PO checks have been rerun.')
                             st.rerun()
-            with st.expander('Extracted fields and source evidence'):
-                st.json(data)
+            st.subheader('Extracted fields and source evidence')
+            with st.container():
+                fields_table(data)
+                if data.get('lines'):st.dataframe(data['lines'],hide_index=True,use_container_width=True)
             if not row['accepted']:
                 with st.expander('Correct extracted fields'):
                     st.caption('Verify against the source. Every edit is logged and revalidated.')
@@ -217,12 +238,15 @@ def detail_view(row):
                             validated=Invoice.model_validate(corrected)
                             rerun_invoice(row['id'],'correct',{'before':data,'after':json.loads(validated.model_dump_json())},data=validated)
                             st.rerun()
-        with st.expander('Run and review history'):
-            with s.connection() as db:
-                for event in db.execute('SELECT * FROM events WHERE invoice_id=? ORDER BY seq',(row['id'],)):
-                    st.caption(f"Run {event['run']} · {event['stage']} · {event['state']} · {event['created']}")
-                for review in db.execute('SELECT * FROM reviews WHERE invoice_id=? ORDER BY seq',(row['id'],)):
-                    st.write(review['action']+' · '+review['created']);st.json(json.loads(review['details']))
+    with right:
+        st.subheader('Source PDF')
+        st.caption('Source document for checking the extracted fields. Download it if the preview is unavailable.')
+        source_view(row)
+    st.subheader('Audit timeline')
+    with s.connection() as db:
+        events=[dict(e) for e in db.execute('SELECT * FROM events WHERE invoice_id=? ORDER BY seq',(row['id'],))]
+        reviews=[dict(r) for r in db.execute('SELECT * FROM reviews WHERE invoice_id=? ORDER BY seq',(row['id'],))]
+    audit_timeline(events,reviews)
 
 @st.cache_resource
 def recover_saved_workspace(path):
@@ -232,11 +256,10 @@ def recover_saved_workspace(path):
 def application():
     recover_saved_workspace(str(s.data_dir()))
     with st.sidebar:
-        st.title('ledger.')
-        st.caption('ACCOUNTS PAYABLE · DEMO')
+        st.html('<div class="wordmark">ledger</div>')
         saved=workspaces(st.session_state.history_key)
         ids=[m['id'] for m in saved]
-        selected=st.selectbox('Saved review sessions',ids,index=ids.index(Path(st.session_state.workspace).name),format_func=lambda id:next(m['name']+' · '+m['created'][:10] for m in saved if m['id']==id))
+        selected=st.selectbox('Saved review sessions',ids,index=ids.index(Path(st.session_state.workspace).name),format_func=lambda id:next(m['name']+' ('+m['created'][:10]+')' for m in saved if m['id']==id))
         if selected!=Path(st.session_state.workspace).name:
             st.session_state.workspace=str(workspace_path(st.session_state.history_key,selected))
             st.session_state.selected_invoice=None;st.session_state.page='Review queue';st.session_state.pop('batch_summary',None);st.rerun()
@@ -245,49 +268,71 @@ def application():
             if st.form_submit_button('Start new session'):
                 st.session_state.workspace=str(new_workspace(st.session_state.history_key,name))
                 st.session_state.selected_invoice=None;st.session_state.page='Review queue';st.session_state.pop('batch_summary',None);st.rerun()
-        pages=['Review queue','New invoice','Purchase orders','Demo documents','Extraction scorecard','Invoice detail']
-        for destination in pages:
+        for destination in ['Review queue','New invoice','Purchase orders']:
             if st.button(destination,key='nav_'+destination,type='primary' if st.session_state.page==destination else 'secondary',use_container_width=True):
                 st.session_state.page=destination;st.rerun()
-        st.divider()
-        st.caption('Bookmark this URL to reopen your saved sessions. Anyone with the history link can access them. Local history survives restarts; hosted history needs a durable LEDGER_ARCHIVE_DIR mount.')
-        st.caption('Recommendation only. No payment execution.')
-        configured=[name for name,key in [('Groq','GROQ_API_KEY'),('Gemini','GEMINI_API_KEY')] if os.getenv(key)]
-        st.caption('Configured readers: '+(', '.join(configured) or 'Local sample reader only'))
-    st.title('Invoice review')
-    st.caption('From document to decision, with the evidence to back it up.')
+        with st.expander('Demo tools'):
+            for destination in ['Demo documents','Extraction scorecard']:
+                if st.button(destination,key='nav_'+destination,use_container_width=True):
+                    st.session_state.page=destination;st.rerun()
+            reset=st.checkbox('Delete invoices in this session',key='reset_confirm_'+Path(st.session_state.workspace).name)
+            if st.button('Reset demo session',disabled=not reset):
+                s.reset_demo_records()
+                for filename in ['last_batch.json','scorecard.json']:(s.data_dir()/filename).unlink(missing_ok=True)
+                st.session_state.selected_invoice=None;st.session_state.page='Review queue';st.rerun()
+        with st.popover('About this demo'):
+            st.write('Bookmark this URL to reopen saved sessions. Anyone with the history link can access them. Hosted history requires a durable LEDGER_ARCHIVE_DIR mount.')
+            st.write('AI providers receive the document or rendered pages. Use synthetic documents in this demo. Local sample reading does not use AI.')
+            st.write('Invoice matching is against purchase orders only; receipt of goods is not confirmed. Approval is always a human action.')
+        st.caption('Recommendation only. No payments are made.')
     if st.session_state.get('flash'):st.info(st.session_state.pop('flash'))
-    snapshot=dashboard();rows=sorted(snapshot['invoices'],key=lambda r:priority(r['result'])[1] if not r['accepted'] else 0,reverse=True)
+    snapshot=dashboard();rows=sorted(snapshot['invoices'],key=queue_rank)
     if any(v.get('gstin','').startswith('DEMO-') for v in snapshot['vendors']):
-        st.warning('This workspace has older demo GSTINs. To use the updated PDFs, choose Show demo reset → Reset my workspace. This clears this workspace’s invoices and reloads the current vendor/PO fixtures.')
-    accepted=sum(bool(r['accepted']) for r in rows)
-    cols=st.columns(4)
-    for col,label,value in zip(cols,['Total invoices','Ready for approval','Needs review','Accepted'],[len(rows),sum(not r['accepted'] and (r['result'] or {}).get('status')=='Ready for approval' for r in rows),sum((r['result'] or {}).get('status')=='Needs review' for r in rows),accepted]):col.metric(label,value)
+        st.warning('This session uses older vendor fixtures. Start a new session to use the current demo documents while retaining history.')
     page=st.session_state.page
+    if page!='Invoice detail':st.title(page)
     if page=='Review queue':
         batchfile=s.data_dir()/'last_batch.json'
         if batchfile.exists():
             batch=json.loads(batchfile.read_text())
-            st.markdown('#### Last batch results');st.dataframe(batch['summary'],hide_index=True,use_container_width=True)
+            st.subheader('Last batch results');st.dataframe([{k:v for k,v in item.items() if k!='Record'} for item in batch['summary']],hide_index=True,use_container_width=True)
             for vendor,requests in batch.get('vendor_followups',{}).items():
                 with st.expander('Combined vendor follow-up: '+vendor):
                     draft='Subject: Invoice review clarifications\n\nHello,\nPlease help resolve these findings:\n\n'+'\n\n'.join(requests)+'\n\nThank you,\nAccounts Payable'
                     st.text_area('Draft only; no email is sent',draft,height=220,key='vendor_email_'+vendor)
-        if not rows:st.info('Upload an invoice or start with a demo document.')
+        attention=sum(not r['accepted'] and ((r['result'] or {}).get('status') in ['Needs review','Blocked'] or r['execution']=='failed') for r in rows)
+        st.subheader(f'{attention} invoice'+('s need' if attention!=1 else ' needs')+' your attention')
+        status_options=['All','Ready for approval','Needs review','Blocked','Accepted','Processing failed']
+        def row_status(r):return 'Accepted' if r['accepted'] else (r['result'] or {}).get('status','Processing failed' if r['execution']=='failed' else 'In progress')
+        counts={status:sum(row_status(r)==status for r in rows) for status in status_options[1:]}
+        if rows:st.caption(f'{len(rows)} invoices received. Exception rate: {attention/len(rows):.0%}.')
+        status_filter=st.pills('Filter invoices',status_options,default='All',format_func=lambda value:value if value=='All' else f'{value} ({counts[value]})',key='queue_status') or 'All'
+        search=st.text_input('Search invoices',placeholder='Invoice number, vendor or PO',key='queue_search').casefold().strip()
+        visible=[r for r in rows if (status_filter=='All' or row_status(r)==status_filter) and (not search or search in ' '.join(str(x or '') for x in [(r['data'] or {}).get('invoice_no'),(r['data'] or {}).get('vendor'),r['po']]).casefold())]
+        if not rows:
+            st.info('Upload an invoice or run a demo document.')
+            if st.button('Upload an invoice',type='primary'):st.session_state.page='New invoice';st.rerun()
+            if st.button('Run a demo document'):st.session_state.page='Demo documents';st.rerun()
+        elif not visible:st.info('No invoices match these filters. Clear the search or choose All.')
         else:
-            status_filter=st.selectbox('Filter',['All','Ready for approval','Needs review','Blocked','Accepted','failed'])
-            visible=[r for r in rows if status_filter=='All' or (('Accepted' if r['accepted'] else (r['result'] or {}).get('status',r['execution']))==status_filter)]
-            st.dataframe([{'Priority':priority(r['result'])[0],'Invoice':(r['data'] or {}).get('invoice_no') or r['filename'],'Vendor':(r['data'] or {}).get('vendor'),'Amount':money((r['data'] or {}).get('total')),'PO':r['po'],'Status':'Accepted' if r['accepted'] else (r['result'] or {}).get('status',r['execution']),'Received':r['created']} for r in visible],use_container_width=True,hide_index=True)
-            if visible:
-                id=st.selectbox('Open invoice',[r['id'] for r in visible],format_func=lambda id:next(((r['data'] or {}).get('invoice_no') or r['filename'])+' · '+id[:6] for r in visible if r['id']==id))
-                if st.button('View invoice'):
-                    st.session_state.selected_invoice=id;st.session_state.page='Invoice detail';st.rerun()
+            table=[]
+            for r in visible:
+                d=r['data'] or {};status=row_status(r)
+                icon={'Ready for approval':'✓','Needs review':'!','Blocked':'×','Accepted':'✓'}.get(status,'○')
+                findings=[c for c in (r['result'] or {}).get('checks',[]) if c['level']!='pass']
+                table.append({'Status':icon+' '+status,'Invoice number':d.get('invoice_no') or r['filename'],'Vendor':d.get('vendor') or 'Unresolved','Amount':float(d['total']) if d.get('total') is not None else None,'PO':r['po'] or 'Unlinked','Main reason':problem_message(findings[0]) if findings else 'Accepted' if r['accepted'] else 'All required checks passed','Received':timestamp(r['created'])})
+            st.caption('Select an invoice row to open its source and findings. Amounts are in INR.')
+            selection=st.dataframe(table,use_container_width=True,hide_index=True,on_select='rerun',selection_mode='single-row',key='queue_table',column_config={'Amount':st.column_config.NumberColumn('Amount (INR)',format='%.2f')})
+            if selection.selection.rows:
+                st.session_state.selected_invoice=visible[selection.selection.rows[0]]['id'];st.session_state.page='Invoice detail';st.rerun()
+        if rows:
             st.download_button('Export accepted invoices (CSV)',accepted_csv(rows),file_name='accepted-invoices.csv',mime='text/csv')
             st.download_button('Export review records (JSON)',s.dumps(rows),file_name='ledger-review-export.json',mime='application/json')
     elif page in ['New invoice','Demo documents']:
         readers=['groq','gemini','local'];default=0 if os.getenv('GROQ_API_KEY') else 1 if os.getenv('GEMINI_API_KEY') else 2
-        mode=st.selectbox('Document reader',readers,index=default,format_func=lambda x:{'groq':'Groq vision · up to 3 pages','gemini':'Gemini · up to 20 pages','local':'Local labelled sample reader · not AI'}[x])
-        if mode=='local':st.caption('Local mode only parses the labelled sample text PDFs. Varied layouts and scans require an AI reader.')
+        with st.expander('Advanced'):
+            mode=st.selectbox('Document reader',readers,index=default,format_func=lambda x:{'groq':'Groq vision (up to 3 pages)','gemini':'Gemini (up to 20 pages)','local':'Local sample reader (not AI)'}[x])
+        if mode=='local':st.caption('The local reader only parses the labelled sample text PDFs. Varied layouts and scans require an AI reader.')
         else:st.caption('The selected provider receives your document/pages for extraction. Use synthetic invoices in this public demo.')
         if page=='New invoice':
             files=st.file_uploader('Upload up to five invoice PDFs',type=['pdf'],accept_multiple_files=True)
@@ -298,11 +343,23 @@ def application():
                     (s.data_dir()/'last_batch.json').write_text(s.dumps(batch))
                     st.session_state.page='Review queue';st.rerun()
         else:
-            st.info('Run 01 and explicitly approve it before running 02. Then test duplicates, the ambiguous PO and scan.')
+            st.caption('Follow the checklist below. Approve the first invoice before testing the remaining PO balance.')
             pack=st.selectbox('Document set',['Basic workflow samples','Realistic extraction test pack'])
             sample_dir=s.ROOT/('samples' if pack=='Basic workflow samples' else 'test_pack/invoices')
-            if pack!='Basic workflow samples':st.caption('Run R01 and approve it before R02; R03 is a reissued duplicate. Test R04-R07 independently. Answer key is in GitHub test_pack/answer_key.json.')
+            if pack!='Basic workflow samples':st.caption('Use an AI reader. Run R01, approve it, then R02 and R03. Start a new session for independent R04, R05 and R07 checks. R06 must retain missing values.')
             samples=sorted(sample_dir.glob('*.pdf'))
+            expectations=(['Ready for approval; approve before the next step','Needs review: 40 chairs remain','Blocked: duplicate invoice','Ready if extraction is reliable; independent session','Needs review; select the intended PO','Needs review; invoice number and total missing','Ready if scan evidence is reliable; independent session'] if pack!='Basic workflow samples' else ['Ready for approval; approve before step 2','Needs review: remaining PO quantity exceeded','First copy ready; re-upload blocks','Needs review: possible duplicate after step 3','Needs review: missing invoice information','Needs review; select a PO','Needs review: arithmetic mismatch','Needs review: unknown vendor','AI reader needed for the scan'])
+            for index,document in enumerate(samples):
+                done=any(r['filename']==document.name for r in rows)
+                with st.container(border=True):
+                    text,control=st.columns([4,1])
+                    with text:
+                        st.write(('✓ Reviewed: ' if done else '○ Not reviewed: ')+document.name)
+                        st.write(expectations[index] if index<len(expectations) else 'Compare with the answer key')
+                    with control:
+                        if st.button('Run',key='demo_run_'+document.stem):
+                            ingest(document.read_bytes(),document.name,mode);st.rerun()
+            st.caption('Or choose a specific document to review or download.')
             selected=st.selectbox('Demo invoice',samples,format_func=lambda p:p.name)
             a,b=st.columns(2)
             with a:
@@ -315,7 +372,7 @@ def application():
         eligible=[r for r in rows if r['original']]
         if not eligible:st.info('Process a realistic invoice first.')
         else:
-            chosen=st.selectbox('Extraction run',[r['id'] for r in eligible],format_func=lambda id:next(r['filename']+' · '+id[:6] for r in eligible if r['id']==id))
+            chosen=st.selectbox('Extraction run',[r['id'] for r in eligible],format_func=lambda id:next(r['filename'] for r in eligible if r['id']==id))
             case=st.selectbox('Expected fixture',cases,format_func=lambda c:Path(c['file']).name)
             record=next(r for r in eligible if r['id']==chosen)
             scorefile=s.data_dir()/'scorecard.json'
@@ -329,7 +386,8 @@ def application():
                 st.metric('Original extraction field accuracy',f"{sum(f['correct'] for f in observations)/len(observations):.1%}")
                 st.caption(f'{len(selected)} scored runs; user-selected synthetic fixtures, not an independent production benchmark.')
                 st.dataframe([{'Field':name,'Correct':sum(f['correct'] for f in observations if f['field']==name),'Evaluated':sum(f['field']==name for f in observations)} for name in sorted({f['field'] for f in observations})],hide_index=True)
-                st.json(selected)
+                with st.expander('Field comparison details'):
+                    st.dataframe([{'Fixture':Path(v['fixture']).name,**f} for v in selected for f in v['fields']],hide_index=True)
                 st.download_button('Export scorecard',s.dumps(selected),file_name='extraction-scorecard.json',mime='application/json')
     elif page=='Purchase orders':
         st.caption('Only accepted invoices consume quantity and authorised value.')
@@ -337,7 +395,7 @@ def application():
             with st.container(border=True):
                 st.subheader(po['number']);st.write(next(v['name'] for v in snapshot['vendors'] if v['id']==po['vendor_id']))
                 st.progress(min(1.0,max(0,float(po['used'])/float(po['total']))),text=f"Accepted {money(po['used'])} of {money(po['total'])}")
-                st.dataframe([{'Item':l['item'],'Accepted quantity':l['used'],'Ordered quantity':l['qty'],'Unit price':money(l['price'])} for l in po['lines']],hide_index=True,use_container_width=True)
+                st.dataframe([{'Item':l['item'],'Accepted quantity':l['used'],'Ordered quantity':l['qty'],'Remaining quantity':float(l['qty'])-float(l['used']),'Unit price':money(l['price'])} for l in po['lines']],hide_index=True,use_container_width=True)
     else:detail_view(load(st.session_state.selected_invoice) if st.session_state.selected_invoice else None)
 
 with s.use_workspace(st.session_state.workspace):

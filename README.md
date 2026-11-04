@@ -39,7 +39,7 @@ Upload a PDF and watch actual processing stages. AI extracts; deterministic code
 
 Every check includes a **Next action**, such as selecting a PO, verifying a field or requesting a corrected invoice. Email drafts reflect these actions. Confirming selected values against the PDF clears only their uncertainty flags and records an audit entry; it never bypasses financial rules.
 
-The review queue sorts by explainable priority: Critical for explicitly blocked vendors; High for confirmed/possible duplicates, quantity/value overruns and price variance over 5%; Medium for other review/deferred prerequisites; Low for checks without exceptions. Accepted records sort below pending work. These are workflow priorities, not calibrated fraud probabilities.
+The Streamlit queue presents blocked invoices first, followed by possible duplicates, price variance over 5%, missing/uncertain fields, other review findings, ready invoices and accepted records. This is a presentation order, not a fraud probability or a change to the underlying recommendation. Search invoice number, vendor or PO and select a table row to review it.
 
 ## Batch upload
 
@@ -78,3 +78,9 @@ python -m pytest -q
 ```
 
 Tests exercise core invoice checks, corrections, approval, provider error handling, workspace isolation/reopening, original-only evaluation, CSV filtering, batch cooldowns and Streamlit interactions. Mocked provider tests do not establish live extraction accuracy. No production-grade identity, duplicate overrides, approval reversals, credit notes, email ingestion or ERP integration is included in this scope.
+
+## UI handoff
+
+The Streamlit interface uses an exception-first queue, source PDF beside findings, a single audit timeline and a restrained document palette. Styling and presentation helpers live in `ui/`; financial services and rules are unchanged. Three primary sidebar destinations remain visible; **Demo tools** contains Demo documents, Extraction scorecard and a confirmed reset of the current session. Use **Start new session** to retain old records. Reader choice is under **Advanced** on upload/demo screens.
+
+Amounts retain international grouping in narrative displays (₹236,000.00); native numeric table columns use fixed two-decimal values in INR, right aligned. Missing amounts display as missing rather than zero. No Indian-grouping migration was made. See `docs/ui-redesign.md` for the widget inventory, screen plan, QA checklist and Streamlit limits, and `docs/contrast-table.md` for calculated contrast ratios. Browser keyboard/mobile/zoom verification is still pending; automated AppTests do not establish visual accessibility.
