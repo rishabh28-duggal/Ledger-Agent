@@ -94,3 +94,7 @@ python -m pytest -q
 Tests include API workflows, PDF rendering, mocked model responses, duplicate handling, approval races/idempotency, isolated Streamlit workspaces, live local-reader review/acceptance/overrun through Streamlit AppTest, PO selection and field corrections. Model tests do not call paid APIs or establish extraction accuracy. Browser visual QA and live Community Cloud deployment must still be checked after deployment.
 
 The `samples/master.json` purchasing data and sample PDFs are versioned. Runtime `data/`, caches, databases and secret files are excluded. Removing mistakenly committed runtime files from the current branch does not erase earlier Git history.
+
+## Realistic extraction fixtures
+
+The [realistic test pack](test_pack/README.md) includes seven PDFs across three layouts, a two-page invoice, an image-only scan and an independent [answer key](test_pack/answer_key.json). In Streamlit, choose Demo documents -> Document set -> Realistic extraction test pack. Use an AI reader and the stated workspace setup. Never send the answer key to the extraction model.

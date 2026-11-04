@@ -1,0 +1,218 @@
+{
+  "fixture_date": "2026-11-04",
+  "synthetic": true,
+  "uses_existing_master": "samples/master.json",
+  "evaluation_notes": "Recommendations assume correct, evidence-backed extraction and the stated workspace setup. Evidence/uncertainty may conservatively require review. Never put this answer key into the model prompt.",
+  "cases": [
+    {
+      "file": "invoices/R01_acme_modern_happy.pdf",
+      "expected_extraction": {
+        "vendor": "Acme Furniture Private Limited",
+        "invoice_no": "RT-ACME-6001",
+        "date": "2026-11-04",
+        "po_ref": "PO-1042",
+        "currency": "INR",
+        "tax_basis": "exclusive",
+        "tax_rate": 18,
+        "subtotal": 120000,
+        "tax": 21600.0,
+        "total": 141600.0,
+        "lines": [
+          {
+            "item": "Office chair",
+            "qty": 60,
+            "unit_price": 2000,
+            "line_total": 120000,
+            "unit": "each"
+          }
+        ],
+        "gstin": "DEMO-ACME-001"
+      },
+      "expected_recommendation": "Ready for approval",
+      "required_setup": "Fresh workspace; no invoices accepted.",
+      "notes": "After explicit approval: 60 chairs consumed; INR 94400 remaining.",
+      "pages": 1
+    },
+    {
+      "file": "invoices/R02_acme_partial_overrun.pdf",
+      "expected_extraction": {
+        "vendor": "Acme Furniture Private Limited",
+        "invoice_no": "RT-ACME-6050",
+        "date": "2026-11-04",
+        "po_ref": "PO-1042",
+        "currency": "INR",
+        "tax_basis": "exclusive",
+        "tax_rate": 18,
+        "subtotal": 100000,
+        "tax": 18000.0,
+        "total": 118000.0,
+        "lines": [
+          {
+            "item": "Office chair",
+            "qty": 50,
+            "unit_price": 2000,
+            "line_total": 100000,
+            "unit": "each"
+          }
+        ],
+        "gstin": "DEMO-ACME-001"
+      },
+      "expected_recommendation": "Needs review",
+      "required_setup": "R01 must already be Accepted against PO-1042.",
+      "notes": "Bills 50, only 40 remain. Amount INR 118000 exceeds remaining INR 94400. Alone in a fresh workspace it legitimately passes.",
+      "pages": 1
+    },
+    {
+      "file": "invoices/R03_acme_reissued_duplicate.pdf",
+      "expected_extraction": {
+        "vendor": "Acme Furniture Pvt Ltd",
+        "invoice_no": "RT-ACME-6001",
+        "date": "2026-11-04",
+        "po_ref": "PO-1042",
+        "currency": "INR",
+        "tax_basis": "exclusive",
+        "tax_rate": 18,
+        "subtotal": 120000,
+        "tax": 21600.0,
+        "total": 141600.0,
+        "lines": [
+          {
+            "item": "Office chair",
+            "qty": 60,
+            "unit_price": 2000,
+            "line_total": 120000,
+            "unit": "each"
+          }
+        ],
+        "gstin": "DEMO-ACME-001"
+      },
+      "expected_recommendation": "Blocked",
+      "required_setup": "R01 already exists with extracted vendor and invoice identity.",
+      "notes": "Different file/layout, same vendor plus normalised invoice number and amount. Not a hash-only duplicate.",
+      "pages": 1
+    },
+    {
+      "file": "invoices/R04_orbit_two_page_invoice.pdf",
+      "expected_extraction": {
+        "vendor": "Orbit Office Supplies",
+        "invoice_no": "RT-ORBIT-2201",
+        "date": "2026-11-04",
+        "po_ref": "PO-2001",
+        "currency": "INR",
+        "tax_basis": "exclusive",
+        "tax_rate": 18,
+        "subtotal": 200000,
+        "tax": 36000.0,
+        "total": 236000.0,
+        "lines": [
+          {
+            "item": "Laptop stand",
+            "qty": 80,
+            "unit_price": 1000,
+            "line_total": 80000,
+            "unit": "each"
+          },
+          {
+            "item": "Laptop stand",
+            "qty": 120,
+            "unit_price": 1000,
+            "line_total": 120000,
+            "unit": "each"
+          }
+        ],
+        "gstin": "DEMO-ORBIT-002"
+      },
+      "expected_recommendation": "Ready for approval",
+      "required_setup": "Fresh workspace or no similar Orbit invoice already processed.",
+      "notes": "Extract two lines across both pages. Net brought forward is NOT a third line. Aggregating to one 200-unit line is also semantically acceptable; evaluate total quantity/value rather than exact row count.",
+      "pages": 2
+    },
+    {
+      "file": "invoices/R05_nova_missing_po.pdf",
+      "expected_extraction": {
+        "vendor": "Nova Equipment",
+        "invoice_no": "RT-NOVA-3301",
+        "date": "2026-11-04",
+        "po_ref": null,
+        "currency": "INR",
+        "tax_basis": "exclusive",
+        "tax_rate": 18,
+        "subtotal": 100000,
+        "tax": 18000.0,
+        "total": 118000.0,
+        "lines": [
+          {
+            "item": "Monitor",
+            "qty": 10,
+            "unit_price": 10000,
+            "line_total": 100000,
+            "unit": "each"
+          }
+        ],
+        "gstin": "DEMO-NOVA-003"
+      },
+      "expected_recommendation": "Needs review",
+      "required_setup": "Fresh workspace with default PO-3001 and PO-3002 both open.",
+      "notes": "Missing PO must remain null. Show both candidates. After reviewer selects a valid PO, expect Ready for approval.",
+      "pages": 1
+    },
+    {
+      "file": "invoices/R06_acme_incomplete_invoice.pdf",
+      "expected_extraction": {
+        "vendor": "Acme Furniture Private Limited",
+        "invoice_no": null,
+        "date": "2026-11-04",
+        "po_ref": "PO-1042",
+        "currency": "INR",
+        "tax_basis": "exclusive",
+        "tax_rate": 18,
+        "subtotal": 20000,
+        "tax": 3600.0,
+        "total": null,
+        "lines": [
+          {
+            "item": "Office chair",
+            "qty": 10,
+            "unit_price": 2000,
+            "line_total": 20000,
+            "unit": "each"
+          }
+        ],
+        "gstin": "DEMO-ACME-001"
+      },
+      "expected_recommendation": "Needs review",
+      "required_setup": "Run independently or after R01; enough remaining quantity either way.",
+      "notes": "Invoice number and amount payable are explicitly not supplied. Total stays null, even though subtotal plus tax could be computed. Do not fabricate fields.",
+      "pages": 1
+    },
+    {
+      "file": "invoices/R07_acme_scanned_invoice.pdf",
+      "expected_extraction": {
+        "vendor": "Acme Furniture Private Limited",
+        "invoice_no": "RT-ACME-SCAN10",
+        "date": "2026-11-04",
+        "po_ref": "PO-1042",
+        "currency": "INR",
+        "tax_basis": "exclusive",
+        "tax_rate": 18,
+        "subtotal": 20000,
+        "tax": 3600.0,
+        "total": 23600.0,
+        "lines": [
+          {
+            "item": "Office chair",
+            "qty": 10,
+            "unit_price": 2000,
+            "line_total": 20000,
+            "unit": "each"
+          }
+        ],
+        "gstin": "DEMO-ACME-001"
+      },
+      "expected_recommendation": "Ready for approval",
+      "required_setup": "Fresh workspace, independent of R06 and other similar Acme 10-chair invoices.",
+      "notes": "Genuine image-only PDF. Requires Groq/Gemini; local text reader must fail clearly. Low-confidence or missing evidence may correctly route it to review rather than Ready.",
+      "pages": 1
+    }
+  ]
+}

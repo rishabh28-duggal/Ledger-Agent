@@ -235,7 +235,10 @@ def application():
                 ingest(file.getvalue(),file.name,mode);st.rerun()
         else:
             st.info('Run 01 and explicitly approve it before running 02. Then test duplicates, the ambiguous PO and scan.')
-            samples=sorted((s.ROOT/'samples').glob('*.pdf'))
+            pack=st.selectbox('Document set',['Basic workflow samples','Realistic extraction test pack'])
+            sample_dir=s.ROOT/('samples' if pack=='Basic workflow samples' else 'test_pack/invoices')
+            if pack!='Basic workflow samples':st.caption('Run R01 and approve it before R02; R03 is a reissued duplicate. Test R04-R07 independently. Answer key is in GitHub test_pack/answer_key.json.')
+            samples=sorted(sample_dir.glob('*.pdf'))
             selected=st.selectbox('Demo invoice',samples,format_func=lambda p:p.name)
             a,b=st.columns(2)
             with a:
