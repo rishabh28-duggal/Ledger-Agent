@@ -1,16 +1,28 @@
 import json, sqlite3, os
 from pathlib import Path
 from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime, timezone
 ROOT=Path(__file__).resolve().parents[1]
 DATA=Path(os.getenv('AP_DATA_DIR',str(ROOT/'data')))
 DATA.mkdir(parents=True,exist_ok=True)
 DB=DATA/'review.sqlite3'
+_workspace = ContextVar('ap_workspace', default=None)
+def data_dir():
+    return _workspace.get() or DATA
+def db_path():
+    return data_dir()/'review.sqlite3' if _workspace.get() is not None else DB
+@contextmanager
+def use_workspace(path):
+    path=Path(path);path.mkdir(parents=True,exist_ok=True)
+    token=_workspace.set(path)
+    try: yield
+    finally: _workspace.reset(token)
 def now(): return datetime.now(timezone.utc).isoformat()
 def dumps(x): return json.dumps(x,default=str)
 @contextmanager
 def connection():
-    db=sqlite3.connect(DB,timeout=20)
+    db=sqlite3.connect(db_path(),timeout=20)
     db.row_factory=sqlite3.Row
     db.execute('PRAGMA foreign_keys=ON')
     try:

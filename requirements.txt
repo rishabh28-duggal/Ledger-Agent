@@ -8,3 +8,4 @@ reportlab>=4,<5
 Pillow>=11,<13
 pytest>=8,<10
 pypdfium2>=4.30,<6
+streamlit[pdf]>=1.50,<2

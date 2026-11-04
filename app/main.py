@@ -25,12 +25,13 @@ async def auth(request:Request,call_next):
 stages=['ingest','extract','completeness','vendor','po','checks','decision']
 def resolve(db,row):
     return evaluate(Invoice.model_validate(row['data']),s.records(db,'vendors'),s.records(db,'pos'),s.all_invoices(db),row['id'],row['hash'],row['selected_po'])
-async def process(id,rerun=False):
+async def process(id,rerun=False,on_event=None):
     try:
         with s.connection() as db:
             row=s.get(db,id);run=row['run'];db.execute("UPDATE invoices SET execution='running' WHERE id=?",(id,))
         for stage in stages:
             with s.connection() as db: s.event(db,id,run,stage,'running')
+            if on_event: on_event(stage,'running',{})
             payload={}
             if stage=='ingest':
                 payload={'filename':row['filename'],'sha256':row['hash']}
@@ -38,7 +39,7 @@ async def process(id,rerun=False):
                 if rerun and row['data']:
                     inv=Invoice.model_validate(row['data']);source='Reviewer-corrected extraction'
                 else:
-                    inv,source=await extract((s.DATA/(id+'.pdf')).read_bytes(),row['mode'])
+                    inv,source=await extract((s.data_dir()/(id+'.pdf')).read_bytes(),row['mode'])
                 payload={'source':source,'fields':json.loads(inv.model_dump_json())}
                 with s.connection() as db:
                     db.execute('UPDATE invoices SET data=?, original=COALESCE(original,?) WHERE id=?',(inv.model_dump_json(),inv.model_dump_json(),id))
@@ -52,8 +53,10 @@ async def process(id,rerun=False):
                     with s.connection() as db:
                         db.execute("UPDATE invoices SET result=?,po=?,vendor_id=?,execution='completed' WHERE id=?",(s.dumps(result),result['po'],result['vendor_id'],id))
             with s.connection() as db: s.event(db,id,run,stage,'done',payload)
+            if on_event: on_event(stage,'done',payload)
             await asyncio.sleep(0) # Yield to stream real events; never fake timed progress.
     except Exception as exc:
+        if on_event: on_event(stage,'failed',{'error':str(exc)[:350]})
         with s.connection() as db:
             db.execute("UPDATE invoices SET execution='failed' WHERE id=?",(id,))
             s.event(db,id,run,stage,'failed',{'error':str(exc)[:350],'next_action':'Read the error above. Provider outages and quota limits require retrying later; missing credentials or unsupported files require configuration/input changes.'})
@@ -79,7 +82,7 @@ async def upload(file:UploadFile=File(...),mode:str=Form('local')):
     try: read_pdf(raw)
     except Exception as exc: raise HTTPException(400,str(exc)[:200])
     id=uuid.uuid4().hex;digest=hashlib.sha256(raw).hexdigest()
-    (s.DATA/(id+'.pdf')).write_bytes(raw)
+    (s.data_dir()/(id+'.pdf')).write_bytes(raw)
     with s.connection() as db:
         db.execute('INSERT INTO invoices(id,filename,hash,mode,created,execution) VALUES(?,?,?,?,?,?)',(id,Path(file.filename or 'invoice.pdf').name,digest,mode,s.now(),'queued'))
     asyncio.create_task(process(id))
@@ -96,7 +99,7 @@ def detail(id:str):
 def pdf(id:str):
     with s.connection() as db:
         if not s.get(db,id): raise HTTPException(404)
-    return FileResponse(s.DATA/(id+'.pdf'),media_type='application/pdf')
+    return FileResponse(s.data_dir()/(id+'.pdf'),media_type='application/pdf')
 @app.get('/api/invoices/{id}/events')
 async def events(id:str,after:int=0):
     with s.connection() as db:
@@ -178,6 +181,6 @@ def reset():
         db.execute('BEGIN IMMEDIATE')
         if db.execute("SELECT 1 FROM invoices WHERE execution IN ('queued','running')").fetchone(): raise HTTPException(409,'Wait for all runs to finish.')
         db.execute('DELETE FROM events');db.execute('DELETE FROM reviews');db.execute('DELETE FROM invoices')
-        for p in s.DATA.glob('*.pdf'): p.unlink(missing_ok=True)
+        for p in s.data_dir().glob('*.pdf'): p.unlink(missing_ok=True)
     return {'reset':True}
 app.mount('/',StaticFiles(directory=s.ROOT/'app/static',html=True),name='ui')
