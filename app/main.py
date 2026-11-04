@@ -40,7 +40,11 @@ async def process(id,rerun=False,on_event=None):
                 if rerun and row['data']:
                     inv=Invoice.model_validate(row['data']);source='Reviewer-corrected extraction'
                 else:
-                    inv,source=await extract((s.data_dir()/(id+'.pdf')).read_bytes(),row['mode'])
+                    def extraction_progress(message,remaining):
+                        payload={'message':message,'retry_in_seconds':remaining}
+                        with s.connection() as db:s.event(db,id,run,'extract','running',payload)
+                        if on_event:on_event('extract','running',payload)
+                    inv,source=await extract((s.data_dir()/(id+'.pdf')).read_bytes(),row['mode'],on_progress=extraction_progress)
                 payload={'source':source,'fields':json.loads(inv.model_dump_json())}
                 with s.connection() as db:
                     db.execute('UPDATE invoices SET data=?, original=COALESCE(original,?) WHERE id=?',(inv.model_dump_json(),inv.model_dump_json(),id))
@@ -60,7 +64,12 @@ async def process(id,rerun=False,on_event=None):
         if on_event: on_event(stage,'failed',{'error':str(exc)[:350]})
         with s.connection() as db:
             db.execute("UPDATE invoices SET execution='failed' WHERE id=?",(id,))
-            s.event(db,id,run,stage,'failed',{'error':str(exc)[:350],'next_action':'Read the error above. Provider outages and quota limits require retrying later; missing credentials or unsupported files require configuration/input changes.'})
+            failure={'error':str(exc)[:500],'next_action':'Read the error above. Provider outages and quota limits require retrying later; missing credentials or unsupported files require configuration/input changes.'}
+            retry_after=getattr(exc,'retry_after',None)
+            if retry_after is not None:
+                import time,math
+                failure.update(retry_in_seconds=math.ceil(retry_after),retry_at_epoch=time.time()+retry_after,next_action=f'Rate limited. Retry after at least {math.ceil(retry_after)} seconds; the invoice was not rejected.')
+            s.event(db,id,run,stage,'failed',failure)
 
 @app.get('/api/config')
 def config(): return {'groq_configured':bool(os.getenv('GROQ_API_KEY')),'gemini_configured':bool(os.getenv('GEMINI_API_KEY')),'demo_reset':os.getenv('AP_DEMO_RESET')=='1','stages':stages}
@@ -107,7 +116,7 @@ async def events(id:str,after:int=0):
         if not s.get(db,id): raise HTTPException(404)
     async def stream():
         cursor=after
-        for _ in range(240):
+        for _ in range(3000):
             with s.connection() as db:
                 rows=[dict(r) for r in db.execute('SELECT * FROM events WHERE invoice_id=? AND seq>? ORDER BY seq',(id,cursor))]
                 row=s.get(db,id)
@@ -131,7 +140,7 @@ def editable(db,id):
     if row['execution'] in ['running','queued']: raise HTTPException(409,'Wait for the active run to finish.')
     return row
 class FieldVerification(BaseModel):
-    fields: list[str] = Field(min_length=1,max_length=11)
+    fields: list[str] = Field(min_length=1,max_length=12)
     expected_run: int = Field(ge=1)
     confirmed_against_source: bool
 
@@ -161,6 +170,8 @@ async def select_po(id:str,selection:Selection):
     asyncio.create_task(process(id,True));return {'id':id}
 @app.post('/api/invoices/{id}/retry')
 async def retry(id:str):
+    remaining=s.retry_remaining(id)
+    if remaining:raise HTTPException(429,f'Rate limited. Retry after {remaining} seconds.')
     with s.connection() as db:
         db.execute('BEGIN IMMEDIATE');row=editable(db,id)
         db.execute("UPDATE invoices SET run=run+1,execution='queued',result=NULL WHERE id=?",(id,))
@@ -192,10 +203,7 @@ def sample(filename:str):
 @app.post('/api/reset')
 def reset():
     if os.getenv('AP_DEMO_RESET')!='1': raise HTTPException(403,'Demo reset is disabled.')
-    with s.connection() as db:
-        db.execute('BEGIN IMMEDIATE')
-        if db.execute("SELECT 1 FROM invoices WHERE execution IN ('queued','running')").fetchone(): raise HTTPException(409,'Wait for all runs to finish.')
-        db.execute('DELETE FROM events');db.execute('DELETE FROM reviews');db.execute('DELETE FROM invoices')
-        for p in s.data_dir().glob('*.pdf'): p.unlink(missing_ok=True)
+    try:s.reset_demo_records()
+    except ValueError as error:raise HTTPException(409,str(error)) from None
     return {'reset':True}
 app.mount('/',StaticFiles(directory=s.ROOT/'app/static',html=True),name='ui')

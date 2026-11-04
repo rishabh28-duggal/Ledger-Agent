@@ -31,3 +31,9 @@ These invoices are more varied than the original labelled samples, but remain co
 Evidence page/snippet and confidence depend on the extraction result, so they are not pre-filled in the answer key. The two-page invoice may be extracted as two lines (80 and 120) or one correctly aggregated 200-unit line; both represent the same purchase. The model must not treat the brought-forward net value as a third item.
 
 Confidence remains self-reported. A review outcome due to genuine uncertainty is safer than an unsupported Ready result. Record both extraction errors and conservative review outcomes separately during evaluation.
+
+## Updated identifier fixtures
+
+New PDFs use clearly labelled, 15-character GSTIN-format test values and separate internal vendor references. Acme: `36ZZZCA0001A1Z8`; Orbit: `36ZZZCO0002B1Z8`; Nova: `36ZZZCN0003C1Z8`. These are syntactic specimens only: no checksum, issuance, registration or legal-validity claim is made. Internal references remain `DEMO-ACME-001`, `DEMO-ORBIT-002`, `DEMO-NOVA-003` in their own field. Do not use them for real transactions.
+
+Use the updated PDFs together with the updated master. In an existing demo workspace, choose **Show demo reset → Reset my workspace** to clear test history and reload the latest master. Do not combine old PDFs with new master identifiers. The changes improve clarity but do not establish that live model extraction is error-free.

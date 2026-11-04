@@ -43,9 +43,7 @@ def init():
         # No background job survives a process restart. Preserve records and mark retryable.
         db.execute("UPDATE invoices SET execution='failed' WHERE execution IN ('queued','running')")
         if not db.execute('SELECT 1 FROM records LIMIT 1').fetchone():
-            seed=json.loads((ROOT/'samples/master.json').read_text())
-            for kind,key in [('vendors','id'),('pos','number')]:
-                for x in seed[kind]: db.execute('INSERT INTO records VALUES(?,?,?)',(kind,x[key],dumps(x)))
+            seed_masters(db)
 def records(db,kind): return [json.loads(r[0]) for r in db.execute('SELECT payload FROM records WHERE kind=?',(kind,))]
 def unpack(row):
     if row is None: return None
@@ -59,3 +57,31 @@ def event(db,id,run,stage,state,payload=None):
     db.execute('INSERT INTO events(invoice_id,run,stage,state,payload,created) VALUES(?,?,?,?,?,?)',(id,run,stage,state,dumps(payload or {}),now()))
 def review(db,id,action,details):
     db.execute('INSERT INTO reviews(invoice_id,action,details,created) VALUES(?,?,?,?)',(id,action,dumps(details),now()))
+
+
+def seed_masters(db):
+    seed=json.loads((ROOT/'samples/master.json').read_text())
+    for kind,key in [('vendors','id'),('pos','number')]:
+        for record in seed[kind]:
+            db.execute('INSERT INTO records VALUES(?,?,?)',(kind,record[key],dumps(record)))
+
+
+def reset_demo_records():
+    """Explicit demo reset also reloads current vendor/PO fixtures."""
+    with connection() as db:
+        db.execute('BEGIN IMMEDIATE')
+        if db.execute("SELECT 1 FROM invoices WHERE execution IN ('queued','running')").fetchone():
+            raise ValueError('Wait for all runs to finish before resetting the demo.')
+        db.execute('DELETE FROM events');db.execute('DELETE FROM reviews');db.execute('DELETE FROM invoices')
+        db.execute('DELETE FROM records');seed_masters(db)
+    for file in data_dir().glob('*.pdf'):file.unlink(missing_ok=True)
+
+
+def retry_remaining(invoice_id):
+    import time,math
+    with connection() as db:
+        row=get(db,invoice_id)
+        if not row or row['execution']!='failed':return 0
+        event_row=db.execute("SELECT payload FROM events WHERE invoice_id=? AND run=? AND state='failed' ORDER BY seq DESC LIMIT 1",(invoice_id,row['run'])).fetchone()
+    payload=json.loads(event_row[0]) if event_row else {}
+    return max(0,math.ceil(float(payload.get('retry_at_epoch',0))-time.time()))

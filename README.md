@@ -102,3 +102,11 @@ The [realistic test pack](test_pack/README.md) includes seven PDFs across three 
 ## Verify a correct value without changing it
 
 When the model flags a present field as uncertain, open the invoice and use **Verify uncertain fields**. Compare the displayed values with the PDF, select only the fields you checked, tick the source-confirmation checkbox, then choose **Confirm selected fields & rerun**. The recorded values stay unchanged. Only selected uncertainty flags are cleared; the original extraction, model confidence and human verification are preserved in the audit history. Every arithmetic, identity, duplicate, quantity and PO-value check runs again. This action does not approve the invoice or consume PO balance. Missing values require correction, accepted records remain read-only, and stale review runs cannot be verified. The retained HTML interface exposes the same action.
+
+## Fixture and provider cleanup
+
+Updated sample and realistic PDFs label synthetic GSTIN-format values separately from internal vendor references. The answer key and vendor master match them. These identifiers are format-only specimens, not verified or legally valid registrations. Use **Reset my workspace** when switching from older demo documents; this now also reloads the current vendor/PO fixtures. Old saved test invoices are not silently rewritten.
+
+When required amounts are absent, dependent reconciliation/PO-value checks say **Not evaluated**. Independent checks still run; a skipped required check keeps the invoice in Needs review.
+
+Groq retries now respect Retry-After or relevant rate-limit reset headers (60-second fallback for 429). The live run shows actual wait progress. At most two retries and 90 seconds of total automatic waiting are allowed. Longer or repeated rate limits stop with a saved retry time and disable early retry until that time. This cannot increase provider quota or guarantee success under continued shared demand.

@@ -21,11 +21,12 @@ def footer(c,page=1,pages=1):
  c.setStrokeColor(HexColor('#dce4df'));c.line(42,67,553,67)
  text(c,42,51,'SYNTHETIC EVALUATION FIXTURE - NOT A PAYABLE DOCUMENT',7,color=GREY)
  right(c,553,51,f'{page} / {pages}',8)
- text(c,42,38,'Fictional addresses and identifiers. Generated for Ledger testing.',7,color=GREY)
+ text(c,42,38,'Synthetic GSTIN format fixtures only; no registration or legal validity claimed.',7,color=GREY)
 def amount(n):return f'{Decimal(str(n)):,.2f}'
 def identity(c,name,gstin):
  text(c,42,690,name,15,True);text(c,42,670,'Registered office: 18 Example Business Park, Hyderabad 500000',8,color=GREY)
- text(c,42,654,'Tax registration / vendor reference: '+gstin,8,color=GREY)
+ text(c,42,654,'GSTIN: '+gstin,9)
+ text(c,42,639,'Vendor reference: DEMO-ACME-001',8,color=GREY)
 def parties(c,y=585):
  text(c,42,y,'BILL TO',8,True,color=GREY);text(c,42,y-20,'Ledger Demo Company',11,True)
  text(c,42,y-37,'Procurement Department, Example Campus',9)
@@ -51,7 +52,7 @@ def modern(path,no,qty,missing=False):
  c=canvas.Canvas(str(path),pagesize=(595,842));c.setTitle('Acme - '+(no or 'incomplete invoice'))
  c.setFillColor(HexColor('#205c49'));c.rect(0,738,595,104,fill=1,stroke=0)
  text(c,42,783,'ACME / FURNITURE',23,True,'#ffffff');text(c,42,758,'TAX INVOICE',10,False,'#d7e8dc')
- identity(c,'Acme Furniture Private Limited','DEMO-ACME-001')
+ identity(c,'Acme Furniture Private Limited','36ZZZCA0001A1Z8')
  text(c,42,618,'Invoice no.: '+(no or 'Not supplied'),10,True);text(c,345,618,'Issued: 04 Nov 2026',10)
  parties(c,575);text(c,42,510,'Purchase order: PO-1042',10,True);text(c,345,510,'Currency: INR | Terms: Net 30',9)
  grid(c,[('Office chair',qty,2000)],455);totals(c,qty*2000,335,missing)
@@ -61,7 +62,7 @@ def modern(path,no,qty,missing=False):
 def duplicate(path):
  c=canvas.Canvas(str(path),pagesize=(595,842));c.setTitle('Acme reissued invoice')
  text(c,42,777,'INVOICE COPY',27,True,color='#524233');text(c,42,750,'Acme Furniture Pvt Ltd',17,True)
- text(c,42,729,'Vendor reference: DEMO-ACME-001',9)
+ text(c,42,729,'GSTIN: 36ZZZCA0001A1Z8 | Vendor reference: DEMO-ACME-001',9)
  c.setStrokeColor(HexColor('#b9a38a'));c.line(42,711,553,711)
  text(c,42,680,'Document ID',8,color=GREY);text(c,42,660,'RT-ACME-6001',13,True)
  text(c,280,680,'Invoice date',8,color=GREY);text(c,280,660,'2026-11-04',11)
@@ -77,8 +78,8 @@ def multi(path):
   c.setFillColor(HexColor('#21395b'));c.rect(42,735,511,67,fill=1,stroke=0)
   text(c,58,774,'ORBIT',25,True,'#ffffff');text(c,58,752,'OFFICE SUPPLIES',9,False,'#d4e0ef')
   text(c,345,774,'INVOICE RT-ORBIT-2201',12,True,'#ffffff');text(c,345,752,'04 November 2026 | INR',9,False,'#ffffff')
-  text(c,42,706,'Supplier: Orbit Office Supplies | Tax reference DEMO-ORBIT-002',9)
-  text(c,42,686,'Customer: Ledger Demo Company | Purchase order PO-2001',9)
+  text(c,42,706,'Supplier: Orbit Office Supplies | GSTIN: 36ZZZCO0002B1Z8',9)
+  text(c,42,686,'Vendor reference: DEMO-ORBIT-002 | Customer: Ledger Demo Company | PO-2001',9)
   text(c,42,666,'Unit prices exclude GST. Unit of measure: each.',9)
   text(c,42,610,'Shipment '+('A - first batch' if page==1 else 'B - second batch'),12,True)
   grid(c,[('Laptop stand',qty,1000)],530)
@@ -98,7 +99,8 @@ def ambiguous(path):
  c=canvas.Canvas(str(path),pagesize=(595,842));c.setTitle('Nova equipment invoice without PO')
  text(c,42,774,'nova',38,True,color='#4b437a');text(c,42,747,'Nova Equipment',14,True)
  text(c,365,774,'INVOICE',17,True);text(c,365,752,'RT-NOVA-3301',11)
- text(c,42,713,'Tax reference DEMO-NOVA-003 | Issued 04/11/2026',9)
+ text(c,42,713,'GSTIN: 36ZZZCN0003C1Z8 | Vendor reference: DEMO-NOVA-003',9)
+ text(c,42,693,'Issued 04/11/2026',9)
  parties(c,652)
  text(c,42,560,'Customer reference: Facilities team',9);text(c,345,560,'Billing currency: INR',9)
  grid(c,[('Monitor',10,10000)],478);totals(c,100000,340)
@@ -136,7 +138,8 @@ add('R07_acme_scanned_invoice.pdf',payload('Acme Furniture Private Limited','RT-
 for e in entries:
  reader=PdfReader(str(OUT/e['file']));e['pages']=len(reader.pages)
  if e['file'].endswith('R07_acme_scanned_invoice.pdf'):assert not ''.join(p.extract_text() for p in reader.pages).strip()
- expected=e['expected_extraction'];expected['gstin']={'Acme Furniture Private Limited':'DEMO-ACME-001','Acme Furniture Pvt Ltd':'DEMO-ACME-001','Orbit Office Supplies':'DEMO-ORBIT-002','Nova Equipment':'DEMO-NOVA-003'}[expected['vendor']]
+ expected=e['expected_extraction'];expected['gstin']={'Acme Furniture Private Limited':'36ZZZCA0001A1Z8','Acme Furniture Pvt Ltd':'36ZZZCA0001A1Z8','Orbit Office Supplies':'36ZZZCO0002B1Z8','Nova Equipment':'36ZZZCN0003C1Z8'}[expected['vendor']]
+ expected['vendor_reference']={'36ZZZCA0001A1Z8':'DEMO-ACME-001','36ZZZCO0002B1Z8':'DEMO-ORBIT-002','36ZZZCN0003C1Z8':'DEMO-NOVA-003'}[expected['gstin']]
  assert Decimal(str(expected['subtotal']))+Decimal(str(expected['tax']))==Decimal(str(expected['total'])) if expected['total'] is not None else True
 (OUT/'answer_key.json').write_text(json.dumps({'fixture_date':DATE.isoformat(),'synthetic':True,'uses_existing_master':'samples/master.json','evaluation_notes':'Recommendations assume correct, evidence-backed extraction and the stated workspace setup. Evidence/uncertainty may conservatively require review. Never put this answer key into the model prompt.','cases':entries},indent=2))
 print('Created',len(entries),'PDF fixtures; total pages',sum(e['pages'] for e in entries))

@@ -7,8 +7,9 @@
         "Acme Furniture",
         "Acme Furniture Pvt Ltd"
       ],
-      "gstin": "DEMO-ACME-001",
-      "status": "approved"
+      "gstin": "36ZZZCA0001A1Z8",
+      "status": "approved",
+      "vendor_reference": "DEMO-ACME-001"
     },
     {
       "id": "orbit",
@@ -16,22 +17,25 @@
       "aliases": [
         "Orbit Office"
       ],
-      "gstin": "DEMO-ORBIT-002",
-      "status": "approved"
+      "gstin": "36ZZZCO0002B1Z8",
+      "status": "approved",
+      "vendor_reference": "DEMO-ORBIT-002"
     },
     {
       "id": "nova",
       "name": "Nova Equipment",
       "aliases": [],
-      "gstin": "DEMO-NOVA-003",
-      "status": "approved"
+      "gstin": "36ZZZCN0003C1Z8",
+      "status": "approved",
+      "vendor_reference": "DEMO-NOVA-003"
     },
     {
       "id": "blocked",
       "name": "Blocked Trading",
       "aliases": [],
-      "gstin": "DEMO-BLOCKED",
-      "status": "blocked"
+      "gstin": "36ZZZCB0004D1Z8",
+      "status": "blocked",
+      "vendor_reference": "DEMO-BLOCKED"
     }
   ],
   "pos": [
@@ -40,7 +44,7 @@
       "vendor_id": "acme",
       "status": "open",
       "currency": "INR",
-      "date": "2026-11-03",
+      "date": "2026-11-04",
       "tax_basis": "exclusive",
       "tax_rate": 18,
       "total": "236000.0",
@@ -64,7 +68,7 @@
       "vendor_id": "orbit",
       "status": "open",
       "currency": "INR",
-      "date": "2026-11-03",
+      "date": "2026-11-04",
       "tax_basis": "exclusive",
       "tax_rate": 18,
       "total": "1180000.0",
@@ -88,7 +92,7 @@
       "vendor_id": "nova",
       "status": "open",
       "currency": "INR",
-      "date": "2026-11-03",
+      "date": "2026-11-04",
       "tax_basis": "exclusive",
       "tax_rate": 18,
       "total": "1180000.0",
@@ -112,7 +116,7 @@
       "vendor_id": "nova",
       "status": "open",
       "currency": "INR",
-      "date": "2026-11-03",
+      "date": "2026-11-04",
       "tax_basis": "exclusive",
       "tax_rate": 18,
       "total": "944000.0",

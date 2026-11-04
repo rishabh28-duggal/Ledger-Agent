@@ -62,7 +62,7 @@ def run_invoice(id,rerun=False):
         def event(stage,state,payload):
             if stage not in stage_boxes: stage_boxes[stage]=st.empty()
             symbol={'running':'⏳','done':'✓','failed':'✕'}[state]
-            stage_boxes[stage].write(f'{symbol} {names[stage]} — {state}')
+            stage_boxes[stage].write(f"{symbol} {names[stage]} — {payload.get('message') or state}")
             if state=='failed': st.error(payload['error'])
         asyncio.run(process(id,rerun,on_event=event))
         row=load(id)
@@ -84,6 +84,9 @@ def ingest(raw,filename,mode):
     run_invoice(id)
 
 def rerun_invoice(id,action,details,data=None,po=None):
+    if action=='retry':
+        remaining=s.retry_remaining(id)
+        if remaining:raise ValueError(f'Rate limited. Retry after {remaining} seconds.')
     with s.connection() as db:
         db.execute('BEGIN IMMEDIATE');row=s.get(db,id)
         if row['accepted']: raise ValueError('Accepted invoices are read-only.')
@@ -152,7 +155,11 @@ def detail_view(row):
             with s.connection() as db:
                 failure=db.execute("SELECT payload FROM events WHERE invoice_id=? AND state='failed' ORDER BY seq DESC LIMIT 1",(row['id'],)).fetchone()
             if failure: st.write(json.loads(failure[0]))
-            if st.button('Retry processing',key='retry_'+row['id']):
+            remaining=s.retry_remaining(row['id'])
+            if remaining:
+                st.warning(f'Provider rate limit: retry available in about {remaining} seconds.')
+                if st.button('Refresh retry availability'):st.rerun()
+            if st.button('Retry processing',key='retry_'+row['id'],disabled=remaining>0):
                 rerun_invoice(row['id'],'retry',{});st.rerun()
         if data:
             confirmable=pending_verifications(data)
@@ -181,7 +188,7 @@ def detail_view(row):
                 with st.expander('Correct extracted fields'):
                     st.caption('Verify against the source. Every edit is logged and revalidated.')
                     with st.form('field_corrections_'+row['id']):
-                        scalar=['vendor','gstin','invoice_no','date','po_ref','currency','tax_basis','subtotal','tax','tax_rate','total']
+                        scalar=['vendor','gstin','vendor_reference','invoice_no','date','po_ref','currency','tax_basis','subtotal','tax','tax_rate','total']
                         values={key:st.text_input(key.replace('_',' ').title(),str(data.get(key) or ''),key='field_'+row['id']+'_'+key) for key in scalar}
                         st.markdown('**Invoice lines**')
                         lines=st.data_editor(data.get('lines',[]),num_rows='dynamic',hide_index=True,key='lines_'+row['id'],use_container_width=True)
@@ -222,14 +229,14 @@ def application():
         st.caption('Configured readers: '+(', '.join(configured) or 'Local sample reader only'))
         if st.checkbox('Show demo reset'):
             if st.button('Reset my workspace',type='secondary'):
-                with s.connection() as db:
-                    db.execute('DELETE FROM events');db.execute('DELETE FROM reviews');db.execute('DELETE FROM invoices')
-                for p in s.data_dir().glob('*.pdf'):p.unlink(missing_ok=True)
+                s.reset_demo_records()
                 st.session_state.selected_invoice=None;st.session_state.page='Review queue';notify('Your workspace was reset.');st.rerun()
     st.title('Invoice review')
     st.caption('From document to decision, with the evidence to back it up.')
     if st.session_state.get('flash'):st.info(st.session_state.pop('flash'))
     snapshot=dashboard();rows=snapshot['invoices']
+    if any(v.get('gstin','').startswith('DEMO-') for v in snapshot['vendors']):
+        st.warning('This workspace has older demo GSTINs. To use the updated PDFs, choose Show demo reset → Reset my workspace. This clears this workspace’s invoices and reloads the current vendor/PO fixtures.')
     accepted=sum(bool(r['accepted']) for r in rows)
     cols=st.columns(4)
     for col,label,value in zip(cols,['Total invoices','Ready for approval','Needs review','Accepted'],[len(rows),sum(not r['accepted'] and (r['result'] or {}).get('status')=='Ready for approval' for r in rows),sum((r['result'] or {}).get('status')=='Needs review' for r in rows),accepted]):col.metric(label,value)

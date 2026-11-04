@@ -17,6 +17,7 @@ class Invoice(BaseModel):
     model_config = ConfigDict(extra='forbid')
     vendor: str | None = None
     gstin: str | None = None
+    vendor_reference: str | None = None
     invoice_no: str | None = None
     date: str | None = None
     po_ref: str | None = None
@@ -104,17 +105,22 @@ def evaluate(inv: Invoice, vendors, pos, history, current_id, file_hash, selecte
     if inv.lines and all(l.line_total is not None for l in inv.lines) and inv.subtotal is not None:
         summed=sum(l.line_total for l in inv.lines)
         add('subtotal','pass' if abs(summed-inv.subtotal)<=1 else 'review','Line amounts compared with subtotal.',expected=summed,observed=inv.subtotal)
-    else: add('subtotal','review','Subtotal or complete line amounts are missing.')
+    else: add('subtotal','not_evaluated','Not evaluated: subtotal reconciliation requires a subtotal and complete line amounts.')
     if all(x is not None for x in [inv.subtotal,inv.tax,inv.total]):
         add('total','pass' if abs(inv.subtotal+inv.tax-inv.total)<=1 and inv.total>0 and inv.tax>=0 else 'review','Subtotal plus tax compared with total.',expected=inv.subtotal+inv.tax,observed=inv.total)
         if inv.tax_rate is not None and inv.tax_basis=='exclusive': add('tax_math','pass' if abs(inv.subtotal*inv.tax_rate/100-inv.tax)<=1 else 'review','Stated tax rate reconciled with tax amount.',expected=inv.subtotal*inv.tax_rate/100,observed=inv.tax)
-    else: add('total','review','Subtotal, tax or total is missing.')
+    else:
+        missing=[f for f in ['subtotal','tax','total'] if getattr(inv,f) is None]
+        add('total','not_evaluated','Not evaluated: total reconciliation requires missing '+', '.join(missing)+'.',missing=missing)
     mappings=[]
     if po:
         if inv.currency!=po['currency']: add('po_currency','review','Invoice and PO currencies differ.')
         accepted=[h for h in prior if h.get('accepted') and h.get('po')==po['number']]
         used=sum((dec(h['data']['total']) for h in accepted),Decimal(0)); available=dec(po['total'])-used
-        add('balance','pass' if inv.total is not None and inv.total<=available+Decimal('1') else 'review','Invoice compared with remaining authorised PO value.',remaining=available,invoice=inv.total,accepted=used)
+        if inv.total is None:
+            add('balance','not_evaluated','Not evaluated: invoice total is missing, so PO-value comparison cannot run.',remaining=available,invoice=None,accepted=used)
+        else:
+            add('balance','pass' if inv.total<=available+Decimal('1') else 'review','Invoice compared with remaining authorised PO value.',remaining=available,invoice=inv.total,accepted=used)
         for i,l in enumerate(inv.lines):
             hits=[p for p in po['lines'] if norm(l.item) in [norm(p['item']),*[norm(a) for a in p.get('aliases',[])]]]
             if len(hits)!=1: add('mapping_'+str(i),'review','Line does not map unambiguously to a PO line.',item=l.item);continue
@@ -134,6 +140,6 @@ def evaluate(inv: Invoice, vendors, pos, history, current_id, file_hash, selecte
             variance=abs(actual-expected)/expected if expected else Decimal(1)
             add('price_'+str(i),'pass' if variance<=Decimal('.02') else 'review','Unit-price comparison: '+('within policy.' if variance<=Decimal('.02') else 'high-severity dispute.' if variance>Decimal('.05') else 'minor variance.'),expected=expected,observed=actual,variance_percent=variance*100)
     status='Blocked' if any(c['level']=='block' for c in checks) else 'Needs review' if any(c['level'] in ['review','not_evaluated'] for c in checks) else 'Ready for approval'
-    issues=[c['message'] for c in checks if c['level'] in ['review','block']]
+    issues=[c['message'] for c in checks if c['level'] in ['review','block','not_evaluated']]
     email=('Subject: Clarification required — invoice '+(inv.invoice_no or '(number missing)')+'\n\nHello,\nPlease help resolve the following before we can complete invoice review:\n'+ '\n'.join('- '+x for x in issues)+'\n\nThank you,\nAccounts Payable') if issues else None
     return serial(dict(status=status,checks=checks,vendor_id=vendor['id'] if vendor else None,po=po['number'] if po else None,candidates=candidates,mappings=mappings,summary=' '.join(issues) if issues else 'All required checks passed. Awaiting reviewer approval.',email=email))

@@ -26,7 +26,8 @@
             "unit": "each"
           }
         ],
-        "gstin": "DEMO-ACME-001"
+        "gstin": "36ZZZCA0001A1Z8",
+        "vendor_reference": "DEMO-ACME-001"
       },
       "expected_recommendation": "Ready for approval",
       "required_setup": "Fresh workspace; no invoices accepted.",
@@ -55,7 +56,8 @@
             "unit": "each"
           }
         ],
-        "gstin": "DEMO-ACME-001"
+        "gstin": "36ZZZCA0001A1Z8",
+        "vendor_reference": "DEMO-ACME-001"
       },
       "expected_recommendation": "Needs review",
       "required_setup": "R01 must already be Accepted against PO-1042.",
@@ -84,7 +86,8 @@
             "unit": "each"
           }
         ],
-        "gstin": "DEMO-ACME-001"
+        "gstin": "36ZZZCA0001A1Z8",
+        "vendor_reference": "DEMO-ACME-001"
       },
       "expected_recommendation": "Blocked",
       "required_setup": "R01 already exists with extracted vendor and invoice identity.",
@@ -120,7 +123,8 @@
             "unit": "each"
           }
         ],
-        "gstin": "DEMO-ORBIT-002"
+        "gstin": "36ZZZCO0002B1Z8",
+        "vendor_reference": "DEMO-ORBIT-002"
       },
       "expected_recommendation": "Ready for approval",
       "required_setup": "Fresh workspace or no similar Orbit invoice already processed.",
@@ -149,7 +153,8 @@
             "unit": "each"
           }
         ],
-        "gstin": "DEMO-NOVA-003"
+        "gstin": "36ZZZCN0003C1Z8",
+        "vendor_reference": "DEMO-NOVA-003"
       },
       "expected_recommendation": "Needs review",
       "required_setup": "Fresh workspace with default PO-3001 and PO-3002 both open.",
@@ -178,7 +183,8 @@
             "unit": "each"
           }
         ],
-        "gstin": "DEMO-ACME-001"
+        "gstin": "36ZZZCA0001A1Z8",
+        "vendor_reference": "DEMO-ACME-001"
       },
       "expected_recommendation": "Needs review",
       "required_setup": "Run independently or after R01; enough remaining quantity either way.",
@@ -207,7 +213,8 @@
             "unit": "each"
           }
         ],
-        "gstin": "DEMO-ACME-001"
+        "gstin": "36ZZZCA0001A1Z8",
+        "vendor_reference": "DEMO-ACME-001"
       },
       "expected_recommendation": "Ready for approval",
       "required_setup": "Fresh workspace, independent of R06 and other similar Acme 10-chair invoices.",
