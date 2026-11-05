@@ -4,14 +4,16 @@ This guide deploys two Cloud Run services from one image: a public web app with 
 
 You need a Google Cloud project with billing enabled and permission to create services, service accounts, IAM bindings, storage, databases, secrets and builds. These steps create billable resources. They have not been executed against your account.
 
-## 1. Create/select your project and configure Firebase
+## 1. Create/select your Google Cloud project
 
-1. Open Google Cloud Console, create/select a project, and enable billing. Record its **project ID**, not its display name or project number.
-2. Open Firebase Console and add Firebase to that **same existing Google Cloud project**.
-3. In Firebase Authentication, enable **Email/Password** sign-in. Email verification is not enforced by this case-study version; do not represent it as a verified enterprise identity system.
-4. Add a Web app in Firebase Project settings → Your apps. Copy `apiKey` and `authDomain` from the web configuration. These are public project configuration, not a service-account secret. Never put an Admin SDK private key into the browser.
-5. Keep the Firestore and Storage browser rules denied. This app accesses data through the backend, using its Google service identity. The included `firestore.rules` and `storage.rules` are deny-all for browser clients; publish them through the corresponding Firebase rules editor (or Firebase CLI with `firebase deploy --only firestore:rules --project YOUR_PROJECT_ID`). The Cloud Storage bucket provisioned below uses IAM and public access prevention independently.
-6. In Google Cloud Billing, configure a budget notification. A budget alert does not impose a hard spending cap. Gemini quota/billing may be managed separately through your API project.
+1. Select a project with billing enabled. Record its project ID.
+2. Ledger accounts run on the backend with username/password authentication.
+   No Firebase Authentication provider, browser web app, API key or authorized
+   domain configuration is needed.
+3. Keep Firestore and Storage browser rules denied. Runtime service identities
+   access Firestore and private Cloud Storage using IAM; every application path
+   is scoped to the authenticated account ID.
+4. Configure billing alerts (alerts do not cap spending).
 
 ## 2. Open the code in Cloud Shell
 
@@ -22,8 +24,6 @@ Set these non-secret values, replacing the examples:
 ```bash
 export LEDGER_PROJECT="your-project-id"
 export LEDGER_REGION="asia-south1"
-export FIREBASE_API_KEY="your-firebase-web-api-key"
-export FIREBASE_AUTH_DOMAIN="your-project-id.firebaseapp.com"
 bash scripts/setup-cloud.sh
 ```
 
@@ -43,14 +43,36 @@ A Firestore database location cannot be changed in place. If your project alread
 
 If a step fails, read the actual error and fix the missing permission, billing state, quota or API setting. The script stops at that step. It can be rerun for the same dedicated Ledger resources; do not run it in a production project with unrelated services using these names. It provisions IAM for the named accounts and may redeploy both services.
 
-## 3. Finish account configuration
+## 3. Validate accounts and upgrades
 
-1. In Firebase Authentication → Settings → Authorized domains, add the hostname of the printed Cloud Run web URL (without `https://`). Add your eventual custom domain too, if used.
-2. Open Ledger and test **Create account**, **Log in**, **Log out** and **Forgot password**.
-3. Open a second browser/incognito session and create another account. Check it cannot see the first account's invoices, files or export links.
-4. Try **Try the demo** from a signed-out browser. It must have its own workspace, sample master and no access to other demos.
+1. Open Ledger and test **Create account**, **Log in** and **Log out** using a
+   username such as `123` and a matching password of at least 8 characters.
+2. Create another account in a separate browser. Confirm folder, invoice,
+   original-file and export links from the first account return 404.
+3. Try demo while signed out. It has separate invoices and a fictional master.
+4. Confirm HTTPS cookies have HttpOnly, SameSite=Lax and Secure attributes.
 
-The web account's `roles/firebaseauth.viewer` permission allows server-side token revocation checks. Admin SDK calls bypass Firebase rules, so backend ownership checks are mandatory; the included API always derives the user path from a verified ID token or signed demo cookie.
+The setup script enables secure cookies and a 24-hour absolute login expiry.
+For an existing deployment, `cloudbuild.yaml` removes the obsolete
+`FIREBASE_API_KEY` and `FIREBASE_AUTH_DOMAIN` environment variables on both services.
+Remove the old `roles/firebaseauth.viewer` binding from the Ledger web service
+identity if it was granted by an earlier setup. Do not remove permissions used by
+other applications. The new code does not use Firebase Authentication or its SDK.
+
+Authentication uses Firestore collections `ledger_auth_accounts`,
+`ledger_auth_logins` and `ledger_auth_rates`. Runtime identities need existing
+`roles/datastore.user`; no additional authentication service is provisioned.
+Uniqueness and rate counters use Firestore transactions, so multiple web instances
+share the same limits. Login tokens are random; only their hashes are stored.
+Expired login records grant no access. They may be removed administratively after
+expiry; retained rate records are reused after their window expires. See README
+for username normalization, rate thresholds and local SQLite configuration.
+
+Back up Firestore, original files and local databases before upgrading. Existing
+invoice paths and legacy account IDs are retained without modification. New
+username accounts receive random IDs; registering a matching-looking username
+does not claim old Firebase or demo records. A verified administrative migration
+would be a separate operation. There is no email/password recovery feature.
 
 ## 4. Connect GitHub for automatic updates
 
@@ -86,7 +108,7 @@ A build or test failure stops before deployment. If the worker deployment succee
 - **Invoices remain queued:** inspect the Cloud Tasks queue, worker URL, task caller's `run.invoker`, OIDC audience and task service account. A lease prevents double processing. An interrupted task is retried by the queue; after attempts are exhausted use the invoice's Retry action.
 - **403 from private worker:** expected for direct browser visits. Only the task identity should invoke it.
 - **Firestore permission error:** check both runtime identities have `roles/datastore.user` in the selected project.
-- **Account login fails:** check Firebase Email/Password provider, public configuration, project identity, authorized domain and the web runtime's Firebase Auth viewer permission.
+- **Account login fails:** check server database permissions, cookie Secure/HTTPS settings, expiry, and durable rate limits. Incorrect credentials always return the same generic error.
 - **Scans remain empty:** inspect quality, orientation and OCR page trace. Correct manually if needed. Multi-frame TIFF preview shows the first frame; the downloaded source retains all frames.
 - **Public deployment rejected:** your organization may disallow `allUsers` invoker access. Use an allowed project or ask the administrator about the intended public case-study demo.
 - **GitHub trigger permission error:** use the provisioned build identity and confirm it can act as both runtime service accounts, write Artifact Registry and deploy Cloud Run.
@@ -97,7 +119,7 @@ Limits are intentionally modest: 3 worker instances, concurrency 1 per worker, 3
 
 Demo access expires after 24 hours. Files/records are not automatically removed merely because a cookie expires. `scripts/cleanup-demos.py` lists expired demo sessions by default and only removes them with `--apply`. Run it using an administrative identity after reviewing its dry-run output; registered account sessions are excluded. If a regular cleanup schedule is desired, configure a restricted scheduled job separately. Uploaded account data otherwise persists until you deliberately remove it through administrative tooling.
 
-This version has no enterprise role model, organization sharing, abuse-resistant public demo admission, email verification enforcement, or automatic demo-to-account migration. For wider public use add admission/rate controls, retention operations and a more granular data access design before raising quotas.
+This version has no enterprise role model, organization sharing, abuse-resistant public demo admission, password recovery, or automatic demo-to-account migration. For wider public use add admission/rate controls, retention operations and a more granular data access design before raising quotas.
 
 ## References
 
@@ -105,5 +127,5 @@ This version has no enterprise role model, organization sharing, abuse-resistant
 - https://docs.cloud.google.com/build/docs/deploying-builds/deploy-cloud-run
 - https://docs.cloud.google.com/run/docs/triggering/using-tasks
 - https://docs.cloud.google.com/run/docs/container-contract
-- https://firebase.google.com/docs/auth/admin/verify-id-tokens
+- https://argon2-cffi.readthedocs.io/en/stable/api.html
 - https://ai.google.dev/gemini-api/docs/document-processing

@@ -4,14 +4,12 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 : "${LEDGER_PROJECT:?Set LEDGER_PROJECT to your Google Cloud project ID}"
-: "${FIREBASE_API_KEY:?Set FIREBASE_API_KEY to your Firebase web app public API key}"
 export LEDGER_REGION="${LEDGER_REGION:-asia-south1}"
 export LEDGER_BUCKET="${LEDGER_BUCKET:-${LEDGER_PROJECT}-ledger-invoices}"
-export FIREBASE_AUTH_DOMAIN="${FIREBASE_AUTH_DOMAIN:-${LEDGER_PROJECT}.firebaseapp.com}"
 export LEDGER_PROJECT
 printf 'Setting up Ledger in project %s, region %s. Billing must be enabled.\n' "$LEDGER_PROJECT" "$LEDGER_REGION"
 gcloud config set project "$LEDGER_PROJECT"
-gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com firestore.googleapis.com storage.googleapis.com cloudtasks.googleapis.com secretmanager.googleapis.com identitytoolkit.googleapis.com firebase.googleapis.com
+gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com firestore.googleapis.com storage.googleapis.com cloudtasks.googleapis.com secretmanager.googleapis.com
 for account in ledger-web ledger-worker ledger-tasks ledger-build; do
   if ! gcloud iam service-accounts describe "$account@$LEDGER_PROJECT.iam.gserviceaccount.com" >/dev/null 2>&1; then
     gcloud iam service-accounts create "$account" --display-name="$account"
@@ -20,7 +18,6 @@ done
 for account in ledger-web ledger-worker; do
   gcloud projects add-iam-policy-binding "$LEDGER_PROJECT" --member="serviceAccount:$account@$LEDGER_PROJECT.iam.gserviceaccount.com" --role=roles/datastore.user --condition=None --quiet >/dev/null
 done
-gcloud projects add-iam-policy-binding "$LEDGER_PROJECT" --member="serviceAccount:ledger-web@$LEDGER_PROJECT.iam.gserviceaccount.com" --role=roles/firebaseauth.viewer --condition=None --quiet >/dev/null
 gcloud projects add-iam-policy-binding "$LEDGER_PROJECT" --member="serviceAccount:ledger-web@$LEDGER_PROJECT.iam.gserviceaccount.com" --role=roles/cloudtasks.enqueuer --condition=None --quiet >/dev/null
 if ! gcloud storage buckets describe "gs://$LEDGER_BUCKET" >/dev/null 2>&1; then
   gcloud storage buckets create "gs://$LEDGER_BUCKET" --location="$LEDGER_REGION" --uniform-bucket-level-access --public-access-prevention
@@ -82,7 +79,7 @@ p=os.environ['LEDGER_PROJECT']
 base={'LEDGER_STORAGE':'cloud','GOOGLE_CLOUD_PROJECT':p,'LEDGER_BUCKET':os.environ['LEDGER_BUCKET'],
       'LEDGER_REGION':os.environ['LEDGER_REGION'],'LEDGER_QUEUE':'ledger-invoices',
       'LEDGER_TASK_SERVICE_ACCOUNT':f'ledger-tasks@{p}.iam.gserviceaccount.com','GEMINI_MODEL':'gemini-2.5-flash',
-      'LEDGER_SERVICE':'worker'}
+      'LEDGER_SERVICE':'worker','LEDGER_COOKIE_SECURE':'1','LEDGER_LOGIN_TTL_SECONDS':'86400'}
 Path(os.environ['LEDGER_CONFIG_DIR'],'worker.json').write_text(json.dumps(base))
 PY
 gcloud run deploy ledger-worker --image="$image" --region="$LEDGER_REGION" --service-account="ledger-worker@$LEDGER_PROJECT.iam.gserviceaccount.com" --no-allow-unauthenticated --concurrency=1 --cpu=1 --memory=2Gi --timeout=1800 --min-instances=0 --max-instances=3 --env-vars-file="$config_dir/worker.json" --set-secrets=LEDGER_SESSION_SECRET=ledger-session-secret:latest,GEMINI_API_KEY=ledger-gemini-key:latest --quiet
@@ -93,7 +90,7 @@ python3 - <<'PY'
 import json,os
 from pathlib import Path
 root=Path(os.environ['LEDGER_CONFIG_DIR']);base=json.loads((root/'worker.json').read_text())
-base.update(LEDGER_SERVICE='web',LEDGER_WORKER_URL=os.environ['LEDGER_WORKER_URL'],FIREBASE_API_KEY=os.environ['FIREBASE_API_KEY'],FIREBASE_AUTH_DOMAIN=os.environ['FIREBASE_AUTH_DOMAIN'])
+base.update(LEDGER_SERVICE='web',LEDGER_WORKER_URL=os.environ['LEDGER_WORKER_URL'])
 (root/'web.json').write_text(json.dumps(base))
 PY
 gcloud run deploy ledger-web --image="$image" --region="$LEDGER_REGION" --service-account="ledger-web@$LEDGER_PROJECT.iam.gserviceaccount.com" --allow-unauthenticated --concurrency=20 --cpu=1 --memory=1Gi --timeout=120 --min-instances=0 --max-instances=3 --env-vars-file="$config_dir/web.json" --set-secrets=LEDGER_SESSION_SECRET=ledger-session-secret:latest,GEMINI_API_KEY=ledger-gemini-key:latest --quiet
@@ -106,4 +103,4 @@ for account in ledger-web ledger-worker; do
 done
 printf '\nLedger is deployed. Open this URL:\n'
 gcloud run services describe ledger-web --region="$LEDGER_REGION" --format='value(status.url)'
-printf '\nNext: add the web hostname to Firebase Authentication authorized domains and connect the GitHub trigger using docs/DEPLOY.md.\n'
+printf '\nNext: test username/password accounts and connect the GitHub trigger using docs/DEPLOY.md.\n'

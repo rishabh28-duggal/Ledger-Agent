@@ -18,10 +18,10 @@ steps:
     args: ['push', '${_REGION}-docker.pkg.dev/$PROJECT_ID/ledger/app:$COMMIT_SHA']
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
     entrypoint: gcloud
-    args: ['run', 'deploy', 'ledger-worker', '--image=${_REGION}-docker.pkg.dev/$PROJECT_ID/ledger/app:$COMMIT_SHA', '--region=${_REGION}', '--project=$PROJECT_ID', '--quiet']
+    args: ['run', 'deploy', 'ledger-worker', '--image=${_REGION}-docker.pkg.dev/$PROJECT_ID/ledger/app:$COMMIT_SHA', '--region=${_REGION}', '--project=$PROJECT_ID', '--remove-env-vars=FIREBASE_API_KEY,FIREBASE_AUTH_DOMAIN', '--update-env-vars=LEDGER_COOKIE_SECURE=1,LEDGER_LOGIN_TTL_SECONDS=86400', '--quiet']
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
     entrypoint: gcloud
-    args: ['run', 'deploy', 'ledger-web', '--image=${_REGION}-docker.pkg.dev/$PROJECT_ID/ledger/app:$COMMIT_SHA', '--region=${_REGION}', '--project=$PROJECT_ID', '--quiet']
+    args: ['run', 'deploy', 'ledger-web', '--image=${_REGION}-docker.pkg.dev/$PROJECT_ID/ledger/app:$COMMIT_SHA', '--region=${_REGION}', '--project=$PROJECT_ID', '--remove-env-vars=FIREBASE_API_KEY,FIREBASE_AUTH_DOMAIN', '--update-env-vars=LEDGER_COOKIE_SECURE=1,LEDGER_LOGIN_TTL_SECONDS=86400', '--quiet']
 images: ['${_REGION}-docker.pkg.dev/$PROJECT_ID/ledger/app:$COMMIT_SHA']
 substitutions:
   _REGION: asia-south1

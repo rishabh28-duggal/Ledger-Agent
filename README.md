@@ -13,9 +13,9 @@ Invoice review with a clear path from document to decision. This version replace
 ## What you get
 
 - A readable, responsive interface: overview, uploads, review queue, invoice detail, procurement master and explained rules.
-- Login and account creation through Firebase Authentication, including password reset.
+- Username/password accounts with Argon2id password hashes and revocable server-side logins. No email address or password recovery.
 - A private demo without account creation. Each visitor gets their own signed, 24-hour demo session, fictional vendors/POs and sample invoices.
-- Registered users start with an empty procurement master; their data is scoped to their verified Firebase UID on the server.
+- Registered users start with an empty procurement master; their data is scoped to a fresh, random account ID on the server.
 - Up to 250 PDFs/images in a browser batch, 10 MB and 30 pages per document. Files upload individually with three concurrent requests. A demo is limited to 15 invoices per session; registered sessions support 400 invoices. Start a new session to retain larger histories in separate runs.
 - Gemini PDF/image extraction with independent embedded-text extraction and local Tesseract OCR fallback. Missing data never becomes invented data.
 - Deterministic checks for vendor identity, POs, duplicates, quantities, arithmetic, tax basis, price tolerance, date and remaining PO authorisation.
@@ -59,9 +59,37 @@ The named volume persists local data. Add `--env-file .env` if configured. This 
 
 ## Accounts
 
-Firebase web configuration enables the login/create-account controls. Backend verification uses the Firebase Admin SDK and Application Default Credentials. Configure Firebase before testing real accounts; the demo needs neither Firebase nor a public API key. No passwords are handled by Ledger's backend.
+Choose **Create account**, enter a unique username (3?32 letters, numbers, dots,
+underscores or hyphens), and a password of 8?1024 characters. Numeric usernames
+such as `123` and passwords such as `12345678` are accepted. Usernames are Unicode
+NFKC-normalized and case-insensitive; passwords are used exactly as entered.
+No email, verification service or password recovery is used.
 
-Real account history is separate from demo history. Creating an account does not migrate demo invoices automatically. Uploaded invoice data is sent to Gemini only when the Gemini reader is selected/available; local-only upload mode skips Gemini.
+Passwords are hashed with Argon2id through `argon2-cffi`. A login lasts 24 hours
+by default (`LEDGER_LOGIN_TTL_SECONDS`, 60 seconds to 30 days). Random 256-bit
+login tokens are sent only in HttpOnly, SameSite=Lax cookies; SHA-256 token hashes
+and absolute expiry times are stored server-side. Logout revokes the stored login.
+Cookies use Secure automatically on Cloud Run; set `LEDGER_COOKIE_SECURE=1` for
+other HTTPS production deployments. Serve production only over HTTPS.
+
+SQLite stores authentication records alongside invoice records in
+`data/cloud/ledger.sqlite3`; Cloud Run stores them in server-only Firestore
+collections. Registering creates a fresh account ID and empty workspace. Existing
+Firebase-owned and demo records stay intact, but are never automatically attached
+to a username. Back up storage before upgrading; any legacy ownership transfer
+requires a separate, authenticated administrative migration. There is no automatic
+recovery or transfer path in this version.
+
+State-changing browser requests require a signed CSRF cookie and matching
+`X-CSRF-Token` header obtained from `/api/csrf`, plus same-origin checks. Login is
+limited to 10 attempts per normalized username and 60 per client IP in 15 minutes;
+registration is limited to 10 attempts per IP in 15 minutes. Limits persist in the
+same database and apply across instances. Only trust forwarding headers from your
+hosting proxy (the provided container is intended to sit behind Cloud Run).
+
+Real account history is separate from demo history. Uploaded invoice data is sent
+to Gemini only when the Gemini reader is selected/available; local-only upload
+mode skips Gemini. Firestore and Cloud Storage continue to use server IAM.
 
 ## Structure
 
@@ -90,4 +118,4 @@ Tests use local SQLite and the real installed OCR engine. They do not validate y
 
 This is a case-study application with deliberately visible limits. It does not move money, validate GST registrations, support arbitrary handwritten layouts, convert units/currencies, or split a single invoice across multiple POs. New sessions have independent duplicate history and PO balances. Use a single shared session for invoices that must share procurement limits.
 
-The UI has responsive layouts, keyboard focus styles, labelled controls, dialogs and status announcements. Browser-based visual QA and live cloud/Firebase/Gemini testing must be completed in the target environment before submission. Google Cloud resources and Gemini may incur charges; configure billing alerts and observe your quotas.
+The UI has responsive layouts, keyboard focus styles, labelled controls, dialogs and status announcements. Browser-based visual QA and live cloud/Gemini testing must be completed in the target environment before submission. Google Cloud resources and Gemini may incur charges; configure billing alerts and observe your quotas.

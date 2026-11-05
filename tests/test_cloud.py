@@ -18,9 +18,12 @@ def client(tmp_path,monkeypatch):
     monkeypatch.setattr(main,'repository',lambda:store)
     monkeypatch.delenv('GEMINI_API_KEY',raising=False)
     monkeypatch.delenv('LEDGER_STORAGE',raising=False)
-    with TestClient(app) as c:yield c,store
+    with TestClient(app) as c:
+        c.headers['X-CSRF-Token']=c.get('/api/csrf').json()['token']
+        yield c,store
 
 def demo(c):
+    c.headers['X-CSRF-Token']=c.get('/api/csrf').json()['token']
     r=c.post('/api/demo');assert r.status_code==200,r.text
     return r.json()['session']
 

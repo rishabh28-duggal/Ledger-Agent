@@ -19,6 +19,8 @@ from app.domain import Invoice
 from .repository import ROOT, repository, now, encode
 from .reader import inspect_file
 from .auth import user, User, serializer, same_origin, verify_worker
+from . import auth as accounts_auth
+from .accounts import SQLiteAccounts, FirestoreAccounts
 from .engine import Dispatcher, Conflict, process, new_record, decision, event, audit
 
 @asynccontextmanager
@@ -28,6 +30,9 @@ async def lifespan(app):
         raise RuntimeError('Cloud Run requires LEDGER_STORAGE=cloud.')
     serializer()
     app.state.repo = repository()
+    store = app.state.repo
+    app.state.accounts = (FirestoreAccounts(store.db, store.fs) if os.getenv('LEDGER_STORAGE') == 'cloud'
+                          else SQLiteAccounts(store.directory))
     app.state.dispatcher = Dispatcher(app.state.repo)
     yield
     pending = list(app.state.dispatcher.tasks)
@@ -46,6 +51,8 @@ async def headers(request, call_next):
     if request.method not in {'GET','HEAD','OPTIONS'}:
         try:
             same_origin(request)
+            if request.url.path.startswith('/api/'):
+                accounts_auth.check_csrf(request)
         except HTTPException as exc:
             return JSONResponse({'detail':exc.detail},status_code=exc.status_code)
     try:
@@ -58,7 +65,7 @@ async def headers(request, call_next):
     response.headers['X-Content-Type-Options'] = 'nosniff'
     response.headers['Referrer-Policy'] = 'same-origin'
     response.headers['X-Frame-Options'] = 'DENY'
-    response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self' https://www.gstatic.com; connect-src 'self' https://*.googleapis.com https://*.firebaseapp.com; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+    response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self'; connect-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
     response.headers['Cache-Control'] = 'no-store' if request.url.path.startswith('/api') else 'no-cache'
     return response
 
@@ -102,28 +109,54 @@ def health():
 
 @app.get('/api/config')
 def config():
-    return {'firebase':{'apiKey':os.getenv('FIREBASE_API_KEY',''),'authDomain':os.getenv('FIREBASE_AUTH_DOMAIN',''),
-                        'projectId':os.getenv('GOOGLE_CLOUD_PROJECT','')},
-            'accounts_enabled':bool(os.getenv('FIREBASE_API_KEY')),'gemini_configured':bool(os.getenv('GEMINI_API_KEY','').strip()),
+    return {'accounts_enabled':True,'gemini_configured':bool(os.getenv('GEMINI_API_KEY','').strip()),
             'max_batch':250,'max_file_mb':10,'max_pages':30,'demo_limit':15,'cloud':os.getenv('LEDGER_STORAGE')=='cloud'}
+
+@app.get('/api/csrf')
+def csrf():
+    import secrets
+    token = serializer().dumps(secrets.token_urlsafe(32), salt='ledger-csrf-v1')
+    response = JSONResponse({'token':token})
+    response.set_cookie(accounts_auth.CSRF_COOKIE, token, max_age=86400, httponly=True,
+                        secure=accounts_auth.secure_cookies(), samesite='lax', path='/')
+    return response
+
+class Credentials(BaseModel):
+    model_config=ConfigDict(extra='forbid')
+    username:str=Field(max_length=128)
+    password:str=Field(max_length=1024)
+
+@app.post('/api/register')
+def register(body:Credentials, request:Request):
+    return accounts_auth.register(request, body.username, body.password)
+
+@app.post('/api/login')
+def login(body:Credentials, request:Request):
+    return accounts_auth.login(request, body.username, body.password)
 
 @app.post('/api/demo')
 def demo(request:Request, store=Depends(repo)):
     # A fresh demo is private to this browser; never a shared public login.
+    accounts_auth.revoke_login(request)
     uid = 'demo_' + uuid.uuid4().hex
     meta = store.create(uid,'Demo review',True)
     response = JSONResponse({'session':meta['id']})
     response.set_cookie('ledger_demo',serializer().dumps(uid),max_age=86400,httponly=True,
-                        secure=bool(os.getenv('K_SERVICE')),samesite='lax')
+                        secure=accounts_auth.secure_cookies(),samesite='lax')
+    response.delete_cookie(accounts_auth.LOGIN_COOKIE, secure=accounts_auth.secure_cookies(), httponly=True, samesite='lax')
     return response
 
 @app.post('/api/logout')
-def logout():
-    response = JSONResponse({'ok':True}); response.delete_cookie('ledger_demo'); return response
+def logout(request:Request):
+    accounts_auth.revoke_login(request)
+    response = JSONResponse({'ok':True})
+    for cookie in (accounts_auth.LOGIN_COOKIE, 'ledger_demo'):
+        response.delete_cookie(cookie, secure=accounts_auth.secure_cookies(), httponly=True, samesite='lax')
+    return response
 
 @app.get('/api/me')
 def me(who:User=Depends(user)):
-    return {'demo':who.demo,'email':who.email}
+    return {'demo':who.demo,'username':who.username}
 
 class SessionInput(BaseModel):
     name:str = Field(min_length=1,max_length=80)
@@ -228,11 +261,11 @@ def review(sid:str,iid:str,body:Revision,who:User=Depends(user),store=Depends(re
             if key not in Invoice.model_fields or key in {'evidence','uncertain_fields'} or data.get(key) in (None,'',[]):
                 raise Conflict('Only present invoice fields can be confirmed. Fill missing values first.')
             ev=data['evidence'].setdefault(key,{})
-            ev['reviewer_verification']={'at':now(),'reviewer':who.email,'method':'Compared with original document','value':data[key]}
+            ev['reviewer_verification']={'at':now(),'reviewer':who.username,'method':'Compared with original document','value':data[key]}
             uncertain.discard(key)
         data['uncertain_fields']=sorted(uncertain)
         row.update(data=data,selected_po=body.po or None,run=row['run']+1,execution='completed')
-        audit(row,'corrected_and_checked',who.email,{'before':before,'after':data,'confirmed_fields':body.confirmed_fields,'selected_po':body.po})
+        audit(row,'corrected_and_checked',who.username,{'before':before,'after':data,'confirmed_fields':body.confirmed_fields,'selected_po':body.po})
         decision(meta,rows,row)
         event(row,'Decision ready',message='Reviewer changes saved and all policy checks rerun.')
         return row
@@ -256,7 +289,7 @@ def approve(sid:str,iid:str,body:RunInput,who:User=Depends(user),store=Depends(r
             raise Conflict('Current checks prevent approval. Refresh the invoice and resolve its findings.')
         row['allocations']=[{'po_line':m['po_line'],'qty':row['data']['lines'][m['index']]['qty']} for m in result['mappings']]
         row['accepted']=True
-        audit(row,'approved',who.email,{'allocations':row['allocations'],'policy':'ledger-v2'})
+        audit(row,'approved',who.username,{'allocations':row['allocations'],'policy':'ledger-v2'})
         event(row,'Decision ready',message='Approved by a reviewer. PO balance updated. No payment was made.')
         # Re-evaluate every completed unapproved invoice in the same atomic commit.
         # This prevents stale Ready labels after PO consumption or master changes.
@@ -278,7 +311,7 @@ async def retry(sid:str,iid:str,body:RunInput,request:Request,who:User=Depends(u
             raise Conflict('The worker is still processing this invoice.')
         row.update(run=row['run']+1,execution='queued',error=None,lease_until=0)
         event(row,'Uploaded',message='Queued for a fresh extraction.')
-        audit(row,'retry',who.email)
+        audit(row,'retry',who.username)
         return row['run']
     run=await asyncio.to_thread(store.atomic,who.uid,sid,update)
     try:
@@ -347,7 +380,7 @@ def master(sid:str,body:Master,who:User=Depends(user),store=Depends(repo)):
         for row in rows.values():
             if row.get('data') and row['execution']=='completed':
                 decision(meta,rows,row)
-                audit(row,'master_updated',who.email)
+                audit(row,'master_updated',who.username)
         return {'ok':True}
     return store.atomic(who.uid,sid,update)
 

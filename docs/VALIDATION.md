@@ -29,9 +29,9 @@ Syntax checks also cover Python compilation, browser JavaScript parsing and depl
 
 - A real Gemini call: no Gemini key was supplied for this build. Response handling is covered with simulated provider responses in the suite.
 - Live Google Cloud Run, Cloud Tasks, Firestore, Storage and IAM integration.
-- Real Firebase signup, login, password reset and revoked-token behaviour.
+- Live Firestore authentication storage and hosted Secure-cookie behavior (local account API tests are covered in the account validation record).
 - Hosted 100+ document throughput or Gemini quota capacity.
-- Visual rendering, actual keyboard/screen-reader operation, mobile browser behaviour, and Firebase CDN loading: the remote browser could not reach the local preview server. Styles, labels and interactions were implemented and statically inspected; complete the browser checks below before submission.
+- Visual rendering, actual keyboard/screen-reader operation, mobile browser behaviour, and hosted login behavior: the remote browser could not reach the local preview server. Styles, labels and interactions were implemented and statically inspected; complete the browser checks below before submission.
 - Building the Docker image or running `gcloud`: those environments/credentials were not available here.
 
 ## Browser acceptance checklist
@@ -42,5 +42,5 @@ Syntax checks also cover Python compilation, browser JavaScript parsing and depl
 4. Multi-file upload: navigate to the queue during upload and ensure counts continue updating. Failed uploads display their own explanations.
 5. Review: no user edit is overwritten by a background refresh while focus remains inside the field form.
 6. Source: verify PDF page navigation, scan image preview and original download on the browsers used for the interview.
-7. Accounts: create, sign out, sign back in, reset password and test isolation with two separate browsers.
+7. Accounts: create, sign out, sign back in, verify username/password matching and test isolation with two separate browsers.
 8. Deploy: push a visible change to GitHub, wait for successful Cloud Build, and confirm the same URL and saved invoices.
