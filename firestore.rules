@@ -1,0 +1,8 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // All reads/writes go through the authenticated backend. The Admin SDK
+    // bypasses these rules; server-side UID scoping and IAM are mandatory.
+    match /{document=**} { allow read, write: if false; }
+  }
+}

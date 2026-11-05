@@ -1,86 +1,93 @@
-# Ledger — invoice review with saved demo sessions
+# Ledger
 
-The final feature interface is **Streamlit** (`streamlit_app.py`). The original FastAPI/HTML interface remains available for compatibility, but the saved-session browser, scorecard and batch screens are in Streamlit.
+Invoice review with a clear path from document to decision. This version replaces the Streamlit interface with a responsive FastAPI web application designed for Cloud Run.
 
-## Start locally
+## Start here
 
-```powershell
+- **Run locally:** `python app.py` after installing `requirements.txt` and Tesseract, or use Docker below.
+- **Deploy to Google Cloud:** follow [docs/DEPLOY.md](docs/DEPLOY.md).
+- **Rehearse the case-study demo:** follow [docs/DEMO.md](docs/DEMO.md).
+- **Understand the fallback:** read [docs/FALLBACK_RULES.md](docs/FALLBACK_RULES.md).
+- **See what was tested:** read [docs/VALIDATION.md](docs/VALIDATION.md).
+
+## What you get
+
+- A readable, responsive interface: overview, uploads, review queue, invoice detail, procurement master and explained rules.
+- Login and account creation through Firebase Authentication, including password reset.
+- A private demo without account creation. Each visitor gets their own signed, 24-hour demo session, fictional vendors/POs and sample invoices.
+- Registered users start with an empty procurement master; their data is scoped to their verified Firebase UID on the server.
+- Up to 250 PDFs/images in a browser batch, 10 MB and 30 pages per document. Files upload individually with three concurrent requests. A demo is limited to 15 invoices per session; registered sessions support 400 invoices. Start a new session to retain larger histories in separate runs.
+- Gemini PDF/image extraction with independent embedded-text extraction and local Tesseract OCR fallback. Missing data never becomes invented data.
+- Deterministic checks for vendor identity, POs, duplicates, quantities, arithmetic, tax basis, price tolerance, date and remaining PO authorisation.
+- Original document preview/download beside editable fields, page evidence, editable line items and explicit reviewer confirmation.
+- A separate human approval step with atomic PO consumption and rechecking of other open decisions.
+- Saved sessions, per-invoice run trails, original extraction, audited changes, vendor follow-up drafts, CSV export and invoice JSON export.
+- Private Cloud Storage, Firestore persistence and a private queued Cloud Run worker. Browser closure does not cancel hosted processing.
+- Cloud Build configuration to test and redeploy both services when GitHub `main` changes.
+
+## Local setup
+
+Use Python 3.12. Install Tesseract separately:
+
+- Windows: install Tesseract using an established distribution and put `tesseract.exe` on PATH, then reopen the terminal. Confirm with `tesseract --version`.
+- macOS: `brew install tesseract`
+- Debian/Ubuntu: `sudo apt-get install tesseract-ocr tesseract-ocr-eng`
+
+Then:
+
+```bash
+python -m venv .venv
+# Activate it using the command for your OS, then:
 python -m pip install -r requirements.txt
-$env:GROQ_API_KEY="YOUR_KEY"
-$env:GROQ_MODEL="qwen/qwen3.8-27b"
-python -m streamlit run streamlit_app.py
+python app.py
 ```
 
-Open http://localhost:8501. Alternatively set server-side keys in `.streamlit/secrets.toml` (ignored by Git). Never commit keys. Optional `AP_ACCESS_TOKEN` adds an access-code gate.
+Open `http://localhost:8080` and choose **Try the demo**. The demo works without cloud credentials or an API key. `start.bat` and `start.sh` also create the environment and install dependencies.
 
-## Saved review sessions
+Copy `.env.example` to `.env` if you want to configure Gemini locally. `python app.py` reads it. For direct `uvicorn cloud.main:app`, set environment variables yourself. Never commit `.env`.
 
-Use **New session name → Start new session** in the sidebar. Every session has its own SQLite database, vendor/PO snapshots, uploaded PDFs, approvals, audit history, scorecard and last-batch results. Previous sessions are preserved and can be reopened from **Saved review sessions**. Duplicate checks and consumed PO quantities/amounts are scoped to the selected demo session. Uploading the same PDF in a different session starts a separate test; uploading it twice in one session still triggers duplicate checks.
+A missing Gemini key falls back immediately. Local SQLite data is saved in `data/cloud`. A local server restart invalidates demo cookies unless `LEDGER_SESSION_SECRET` is configured. Local in-process tasks do not survive a restart; saved invoices can be retried. Only cloud mode uses a durable task queue.
 
-Bookmark the URL including its `history` parameter. This random capability key reopens your collection after browser refresh or application restart. Anyone holding that history URL can access the collection: do not share private history URLs publicly. Different visitors without the same capability get independent collections. It is a demo capability system, not production user authentication. All users still consume the configured server provider quota.
+### Docker (includes OCR)
 
-Archives default to `data/archive`. Set `LEDGER_ARCHIVE_DIR` to an absolute durable directory to put them elsewhere. Local records survive application restarts while that directory is retained. **Streamlit Community Cloud local storage is ephemeral**: these files are not guaranteed across reboots/redeployments. Use a host with a persistent volume for persistent history. External database/object-storage integration is not included. Export records before leaving an ephemeral deployment. Do not mistake session state for durable cloud storage.
-
-No reset is needed to repeat the demo. Start a new session instead. Existing archives are never silently deleted.
-
-## Import invoices from the previous FastAPI installation
-
-Stop the old server first. Keep its `data` folder. In the new project run:
-
-```powershell
-python scripts/import_history.py --source "E:\path\to\old-project\data" --name "Previous invoices"
+```bash
+docker build -t ledger .
+docker run --rm -p 8080:8080 -v ledger-data:/app/data ledger
 ```
 
-The utility copies the SQLite database and available invoice PDFs into a saved session. It leaves the original files untouched and prints a local history URL. Open that URL to find the imported session. To add the import to an existing collection, also pass `--history-key` with the 32-character key from its bookmarked URL. Keep that key private. Scorecards and batches created in the older temporary Streamlit version are not migrated by this utility.
+The named volume persists local data. Add `--env-file .env` if configured. This command is for local mode, not the production multi-service deployment.
 
-## Review workflow and controls
+## Accounts
 
-Upload a PDF and watch actual processing stages. AI extracts; deterministic code checks values and assigns Ready for approval / Needs review / Blocked. Accepting a ready invoice is a separate human action. Acceptance rechecks balances transactionally and consumes quantity/value once. Accepted invoices remain immutable.
+Firebase web configuration enables the login/create-account controls. Backend verification uses the Firebase Admin SDK and Application Default Credentials. Configure Firebase before testing real accounts; the demo needs neither Firebase nor a public API key. No passwords are handled by Ledger's backend.
 
-Every check includes a **Next action**, such as selecting a PO, verifying a field or requesting a corrected invoice. Email drafts reflect these actions. Confirming selected values against the PDF clears only their uncertainty flags and records an audit entry; it never bypasses financial rules.
+Real account history is separate from demo history. Creating an account does not migrate demo invoices automatically. Uploaded invoice data is sent to Gemini only when the Gemini reader is selected/available; local-only upload mode skips Gemini.
 
-The Streamlit queue presents blocked invoices first, followed by possible duplicates, price variance over 5%, missing/uncertain fields, other review findings, ready invoices and accepted records. This is a presentation order, not a fraud probability or a change to the underlying recommendation. Search invoice number, vendor or PO and select a table row to review it.
+## Structure
 
-## Batch upload
+```text
+app/          Shared deterministic checks, extraction schema and next-step text
+cloud/        API, authentication, storage, queue worker and fallback reader
+web/          Accessible HTML, responsive CSS and browser application
+samples/      Fictional procurement master and workflow PDFs
+test_pack/   Additional varied-layout, missing-data and scanned fixtures
+tests/       API, isolation, fallback, approval and 120-document checks
+ scripts/     Local launcher, Google Cloud setup and demo cleanup
+ docs/        Deployment, fallback, demo and validation guides
+```
 
-Select one to five PDFs on **New invoice**. Files process sequentially. Each completed/failed result is saved. A provider cooldown stops submission of remaining files, which are marked Not submitted; completed invoices are preserved. The last-batch table and combined follow-up draft for each vendor appear on the queue. No email is sent automatically. Individual failed records support retry after the provider cooldown. A batch does not approve anything automatically.
+## Verification
 
-## Extraction scorecard
-
-Process a realistic fixture first, then open **Extraction scorecard**. Explicitly match an invoice run to its expected fixture and choose **Score original extraction**. The evaluation always uses the saved original extraction, before corrections/verification, and the answer key is never supplied to a provider.
-
-Per-field counts and aggregate accuracy cover invoice/vendor identifiers, amounts, tax rate, date, currency, tax basis and semantic line totals/quantities/prices. Equivalent lines across pages can be aggregated without double-counting. Decimal values compare exactly after Decimal parsing; identifiers ignore case/punctuation. Evidence quality and model confidence are not scored automatically. User-selected synthetic runs are not an independent production benchmark. Score associations are saved in the workspace and exportable as JSON.
-
-## Export
-
-**Export accepted invoices (CSV)** on the queue exports only accepted invoices in the selected session. Includes invoice number, vendor, date, currency, subtotal, tax, total, PO and record ID. Spreadsheet-formula-like text is escaped. This is a clean generic CSV, not certified Tally import compatibility. The JSON record export includes original extraction, decisions, corrections and approvals; source PDFs can be downloaded separately. Exports are not an import/restore system.
-
-## Document readers and policies
-
-Groq: `qwen/qwen3.8-27b`, renders every PDF page to JPEG, up to 3 pages. Gemini optional: native PDF, up to 20 pages. Local reader only parses the labelled basic samples, not varied layouts or scans. Provider availability/quotas require live testing. Groq obeys retry timing with bounded automatic waiting and persisted cooldowns.
-
-Use synthetic documents for demos. Clearly labelled specimen GSTINs and internal references are distinct; no legal registration/validity claim is made. Missing or uncertain fields stay in review. Arithmetic uses Decimal and INR 1 rounding. Unit-price variance <=2% passes; >2–5% review, >5% high-severity review. PO quantities and values have separate cumulative caps. Single company, INR, two-way invoice/PO match; no delivery confirmation, payment execution, tax-law advice or automatic sending.
-
-Real AP controls should check relevant historical obligations across periods. Isolated demo sessions intentionally reset duplicate and PO-balance scope for rehearsals; starting a real AP upload batch must not reset those controls.
-
-## Test pack
-
-See `test_pack/README.md` and `test_pack/answer_key.json`. Run R01 -> approve -> R02 -> R03 together. Test R04–R07 independently as documented. R06 must remain in review because its number/total are absent. Use a new named session to retest without deleting prior evidence. Earlier OCR mistakes and manual corrections must be included honestly in test results.
-
-## Deploy later
-
-The project has not been deployed by this update. Community Cloud entrypoint: `streamlit_app.py`, branch `main`, Python 3.12. Put provider credentials in Advanced settings → Secrets. For durable historical records choose persistent storage hosting instead of assuming Community Cloud has a persistent volume. The retained Dockerfile runs the legacy FastAPI interface; it does not launch the new Streamlit session interface.
-
-## Validation
-
-```sh
+```bash
+python -m pip install -r requirements-dev.txt
 python -m pytest -q
+node --check web/app.js
 ```
 
-Tests exercise core invoice checks, corrections, approval, provider error handling, workspace isolation/reopening, original-only evaluation, CSV filtering, batch cooldowns and Streamlit interactions. Mocked provider tests do not establish live extraction accuracy. No production-grade identity, duplicate overrides, approval reversals, credit notes, email ingestion or ERP integration is included in this scope.
+Tests use local SQLite and the real installed OCR engine. They do not validate your Gemini key or Google Cloud permissions. See the validation guide for the exact verification boundaries.
 
-## UI handoff
+## Important boundaries
 
-The Streamlit interface uses an exception-first queue, source PDF beside findings, a single audit timeline and a restrained document palette. Styling and presentation helpers live in `ui/`; financial services and rules are unchanged. Three primary sidebar destinations remain visible; **Demo tools** contains Demo documents, Extraction scorecard and a confirmed reset of the current session. Use **Start new session** to retain old records. Reader choice is under **Advanced** on upload/demo screens.
+This is a case-study application with deliberately visible limits. It does not move money, validate GST registrations, support arbitrary handwritten layouts, convert units/currencies, or split a single invoice across multiple POs. New sessions have independent duplicate history and PO balances. Use a single shared session for invoices that must share procurement limits.
 
-Amounts retain international grouping in narrative displays (₹236,000.00); native numeric table columns use fixed two-decimal values in INR, right aligned. Missing amounts display as missing rather than zero. No Indian-grouping migration was made. See `docs/ui-redesign.md` for the widget inventory, screen plan, QA checklist and Streamlit limits, and `docs/contrast-table.md` for calculated contrast ratios. Browser keyboard/mobile/zoom verification is still pending; automated AppTests do not establish visual accessibility.
+The UI has responsive layouts, keyboard focus styles, labelled controls, dialogs and status announcements. Browser-based visual QA and live cloud/Firebase/Gemini testing must be completed in the target environment before submission. Google Cloud resources and Gemini may incur charges; configure billing alerts and observe your quotas.

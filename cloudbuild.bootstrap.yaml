@@ -1,0 +1,20 @@
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args: ['build', '-t', '${_REGION}-docker.pkg.dev/$PROJECT_ID/ledger/app:$BUILD_ID', '.']
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - run
+      - --rm
+      - --entrypoint
+      - sh
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/ledger/app:$BUILD_ID'
+      - -c
+      - 'python -m pip install --user pytest==8.4.2 && python -m pytest -q'
+  - name: gcr.io/cloud-builders/docker
+    args: ['push', '${_REGION}-docker.pkg.dev/$PROJECT_ID/ledger/app:$BUILD_ID']
+images: ['${_REGION}-docker.pkg.dev/$PROJECT_ID/ledger/app:$BUILD_ID']
+substitutions:
+  _REGION: asia-south1
+options:
+  logging: CLOUD_LOGGING_ONLY
+timeout: 1200s

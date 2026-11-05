@@ -1,0 +1,30 @@
+# Connect a GitHub main-branch push trigger to this file after initial setup.
+# The trigger must run as ledger-build@PROJECT_ID.iam.gserviceaccount.com.
+# Updates preserve the service identities, secrets, bucket and database configured
+# by setup-cloud.sh. A failed build/test never reaches either deploy step.
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args: ['build', '-t', '${_REGION}-docker.pkg.dev/$PROJECT_ID/ledger/app:$COMMIT_SHA', '.']
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - run
+      - --rm
+      - --entrypoint
+      - sh
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/ledger/app:$COMMIT_SHA'
+      - -c
+      - 'python -m pip install --user pytest==8.4.2 && python -m pytest -q'
+  - name: gcr.io/cloud-builders/docker
+    args: ['push', '${_REGION}-docker.pkg.dev/$PROJECT_ID/ledger/app:$COMMIT_SHA']
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: gcloud
+    args: ['run', 'deploy', 'ledger-worker', '--image=${_REGION}-docker.pkg.dev/$PROJECT_ID/ledger/app:$COMMIT_SHA', '--region=${_REGION}', '--project=$PROJECT_ID', '--quiet']
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: gcloud
+    args: ['run', 'deploy', 'ledger-web', '--image=${_REGION}-docker.pkg.dev/$PROJECT_ID/ledger/app:$COMMIT_SHA', '--region=${_REGION}', '--project=$PROJECT_ID', '--quiet']
+images: ['${_REGION}-docker.pkg.dev/$PROJECT_ID/ledger/app:$COMMIT_SHA']
+substitutions:
+  _REGION: asia-south1
+options:
+  logging: CLOUD_LOGGING_ONLY
+timeout: 1200s

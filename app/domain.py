@@ -39,9 +39,9 @@ def serial(x):
     import json
     return json.loads(__import__('json').dumps(x, default=str))
 
-def evaluate(inv: Invoice, vendors, pos, history, current_id, file_hash, selected_po=None, today=None):
+def evaluate(inv: Invoice, vendors, pos, history, current_id, file_hash, selected_po=None, today=None, duplicate_history=None):
     today = today or date.today()
-    from .features import fix_for
+    from .guidance import fix_for
     checks=[]
     def add(code, level, message, **evidence):
         check=dict(code=code, level=level, message=message, evidence=serial(evidence))
@@ -51,6 +51,7 @@ def evaluate(inv: Invoice, vendors, pos, history, current_id, file_hash, selecte
         if getattr(inv,f) is None or getattr(inv,f)=='': add('missing_'+f,'review',f'Required field missing: {f}.',field=f)
     for f in inv.uncertain_fields:
         add('uncertain_'+f,'review',f'Confirm {f} against the PDF.', field=f,source=inv.evidence.get(f))
+    if inv.tax_rate is not None and not 0 <= inv.tax_rate <= 100: add('tax_rate','review','Tax rate must be between 0 and 100 percentage points.')
     if inv.currency and inv.currency!='INR': add('currency','review','Only INR is supported.',observed=inv.currency)
     try:
         d=date.fromisoformat(inv.date) if inv.date else None
@@ -69,7 +70,7 @@ def evaluate(inv: Invoice, vendors, pos, history, current_id, file_hash, selecte
         candidates=[v['name'] for v in vendors if SequenceMatcher(None,name_norm(inv.vendor),name_norm(v['name'])).ratio()>.5]
         add('vendor','review','Vendor identity is unknown or ambiguous.',candidates=candidates)
     prior=[h for h in history if h['id']!=current_id and h.get('data')]
-    for h in prior:
+    for h in (prior if duplicate_history is None else duplicate_history):
         old=h['data']
         if h['hash']==file_hash:
             add('duplicate_file','block','Identical PDF already exists.',original_id=h['id']); break
@@ -135,7 +136,7 @@ def evaluate(inv: Invoice, vendors, pos, history, current_id, file_hash, selecte
             remaining=dec(p['qty'])-usedqty
             add('quantity_'+str(i),'pass' if l.qty is not None and currentqty<=remaining else 'review',f'Bills {currentqty}; {remaining} remain on {po["number"]}.',ordered=p['qty'],accepted=usedqty,remaining=remaining,billed=currentqty)
             price=l.unit_price
-            if inv.tax_basis not in ['inclusive','exclusive'] or inv.tax_rate is None:
+            if inv.tax_basis not in ['inclusive','exclusive'] or inv.tax_rate is None or not 0 <= inv.tax_rate <= 100:
                 add('price_'+str(i),'review','Tax basis/rate must be established before price comparison.');continue
             if price is None: continue
             actual=price/(1+inv.tax_rate/100) if inv.tax_basis=='inclusive' else price
