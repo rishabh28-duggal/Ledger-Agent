@@ -19,20 +19,20 @@ Choose **Try the demo**. Point out the private workspace, preloaded fictional ve
 ## 1:50 — A scanned invoice / API failure
 
 1. Start another session if you want an independent PO balance.
-2. Upload invoices → select **Use independent OCR and rules** → try **A scanned invoice**.
+2. Upload invoices → select **Use independent OCR and rules** → choose `samples/09_scan_requires_gemini.pdf` and run invoice checks.
 3. Open the invoice, show “Local OCR + rules,” page reading details, and the original image.
 4. Demonstrate that the rest of the queue continues even if extraction needs correction. Confirm the source and rerun checks.
 
 ## 2:50 — Two meaningful exceptions
 
-- **Missing information:** try the corresponding sample. Highlight null fields and specific next steps. Do not fill absent information from the master or invented values.
-- **Arithmetic error:** try that sample. Human confirmation of extraction cannot make incorrect printed arithmetic pass. Show the vendor follow-up draft; Ledger does not send it automatically.
+- **Missing information:** upload `samples/05_missing_information.pdf`. Highlight null fields and specific next steps. Do not fill absent information from the master or invented values.
+- **Arithmetic error:** upload `samples/07_arithmetic_error.pdf`. Human confirmation of extraction cannot make incorrect printed arithmetic pass. Show the vendor follow-up draft; Ledger does not send it automatically.
 
 For a procurement-consumption alternative, upload `samples/02_split_50_chairs.pdf` after approving the 60-chair invoice in the same session. The remaining PO has only 40 chairs, so the second invoice needs review.
 
 ## 4:00 — History and auditability
 
-Show the invoice audit trail, original extraction, CSV export, and source download. Start a new session, then switch back to the old session to show preservation. Explain that separate sessions have independent duplicate/PO histories.
+Show the invoice audit trail, original extraction, Excel download, and source download. Start a new session, then switch back to the old session to show preservation. Explain that separate sessions have independent duplicate/PO histories.
 
 ## 4:40 — Design judgment
 

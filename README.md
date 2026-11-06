@@ -21,7 +21,8 @@ Invoice review with a clear path from document to decision. This version replace
 - Deterministic checks for vendor identity, POs, duplicates, quantities, arithmetic, tax basis, price tolerance, date and remaining PO authorisation.
 - Original document preview/download beside editable fields, page evidence, editable line items and explicit reviewer confirmation.
 - A separate human approval step with atomic PO consumption and rechecking of other open decisions.
-- Saved sessions, per-invoice run trails, original extraction, audited changes, vendor follow-up drafts, CSV export and invoice JSON export.
+- Saved folders, per-invoice run trails, original extraction, audited changes, vendor follow-up drafts, Excel downloads and CSV/JSON API exports.
+- All-folder overview with filters, grouping, real invoice amount summaries and monthly graph; selectable bulk approval, light/dark themes and collapsible navigation.
 - Private Cloud Storage, Firestore persistence and a private queued Cloud Run worker. Browser closure does not cancel hosted processing.
 - Cloud Build configuration to test and redeploy both services when GitHub `main` changes.
 
@@ -110,6 +111,7 @@ tests/       API, isolation, fallback, approval and 120-document checks
 python -m pip install -r requirements-dev.txt
 python -m pytest -q
 node --check web/app.js
+node tests/ui-render.cjs
 ```
 
 Tests use local SQLite and the real installed OCR engine. They do not validate your Gemini key or Google Cloud permissions. See the validation guide for the exact verification boundaries.

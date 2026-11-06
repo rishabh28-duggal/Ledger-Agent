@@ -165,6 +165,37 @@ class SessionInput(BaseModel):
 def sessions(who:User=Depends(user),store=Depends(repo)):
     return sorted([{k:v for k,v in x.items() if k!='master'} for x in store.sessions(who.uid)],key=lambda x:x['created'],reverse=True)
 
+def owner_invoice_rows(store, who, folder='all'):
+    folders = store.sessions(who.uid) if folder == 'all' else [get_session(store,who,folder)[0]]
+    rows = []
+    for meta in folders:
+        _, invoices = store.snapshot(who.uid,meta['id'])
+        for row in invoices:
+            summary = {k:v for k,v in row.items() if k not in {'original','audit','events','lease_token'}}
+            rows.append({**summary,'folder_id':meta['id'],'folder_name':meta['name']})
+    return rows
+
+@app.get('/api/invoices')
+def all_invoices(folder:str='all', who:User=Depends(user), store=Depends(repo)):
+    return {'invoices':sorted(owner_invoice_rows(store,who,folder),key=lambda row:row['created'],reverse=True)}
+
+@app.get('/api/invoices/export.xlsx')
+def excel_export(folder:str='all', outcome:str='', dated:str='all', search:str='', group_by:str='none',
+                 as_of:str|None=None, who:User=Depends(user),store=Depends(repo)):
+    from datetime import date
+    from .excel import filtered_rows, workbook
+    if group_by not in {'none','date','month','year','vendor','invoice_no','po','status','folder'}:
+        raise HTTPException(400,'Unknown grouping.')
+    if dated not in {'all','7','30','90','month','year'}:
+        raise HTTPException(400,'Unknown date filter.')
+    try:
+        today = date.fromisoformat(as_of) if as_of else None
+    except ValueError:
+        raise HTTPException(400,'Invalid filter date.') from None
+    rows = filtered_rows(owner_invoice_rows(store,who,folder),outcome,dated,search,today)
+    return Response(workbook(rows,group_by),media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    headers={'Content-Disposition':'attachment; filename="ledger-invoices.xlsx"'})
+
 @app.post('/api/sessions')
 def create_session(body:SessionInput,who:User=Depends(user),store=Depends(repo)):
     if who.demo and len(store.sessions(who.uid)) >= 3:
