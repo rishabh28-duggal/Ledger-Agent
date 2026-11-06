@@ -117,7 +117,7 @@ tbody tr[data-invoice]:hover{background:var(--row-hover)}
 td strong{font-size:13px;font-weight:600;display:block}
 td small{display:block;font-size:12px;max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .number{text-align:right;font-variant-numeric:tabular-nums}
-.filters{display:flex;gap:12px;align-items:center;margin:0 0 20px;flex-wrap:wrap}
+.filters{display:grid;grid-template-columns:minmax(240px,1fr) minmax(160px,200px) minmax(180px,220px) auto;gap:14px;align-items:end;margin:0 0 24px}
 .filters input{flex:1;min-width:220px}
 .filters select{min-width:160px}
 input,select,textarea{border:1px solid var(--line);border-radius:0;background:var(--white);color:var(--ink);padding:10px 12px;max-width:100%}
@@ -355,7 +355,7 @@ button.primary:disabled,button.secondary:disabled{background:var(--soft);color:v
 .group-row th{background:var(--soft);font-size:14px;color:var(--ink);border-top:1px solid var(--line);padding:13px 14px;text-align:left}
 button.review-button{border-color:var(--green);color:var(--green);white-space:nowrap;font-size:14px;min-height:38px}
 button.approve-large{font-size:17px;min-height:50px;padding:14px 24px}.review-actions #approve{min-width:220px}
-.bulk-toolbar{border-top:1px solid var(--line);margin-top:20px;padding-top:20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}.bulk-toolbar .micro{flex-basis:100%;margin:0}.bulk-toolbar .inline-check{margin-right:auto}#bulk-result:not(:empty){margin-top:16px;padding:12px;border-left:4px solid var(--green);background:var(--soft)}
+.bulk-toolbar{border-top:1px solid var(--line);margin-top:20px;padding-top:20px;display:grid;grid-template-columns:minmax(240px,1fr) auto auto;align-items:center;gap:14px}.bulk-toolbar .micro,.bulk-toolbar .selection-summary{grid-column:1/-1;margin:0}.bulk-toolbar .inline-check{align-items:center;margin:0}#bulk-result:not(:empty){margin-top:16px;padding:12px;border-left:4px solid var(--green);background:var(--soft)}
 .finding-review{background:var(--amber-bg);border-left-color:var(--amber)}.finding-block{background:var(--red-bg);border-left-color:var(--red)}.finding-pass{border-left-color:var(--approved)}
 .finding-review h3{color:var(--amber)}.finding-block h3{color:var(--red)}.finding p{color:var(--ink)}.findings-panel{scroll-margin-top:20px}.findings-panel:focus{outline:3px solid var(--focus)}
 .findings-jump{display:inline-flex;align-items:center;min-height:40px;padding:8px 12px;border:1px solid var(--line);background:var(--white);font-weight:600;text-decoration:none}
@@ -366,3 +366,21 @@ button.approve-large{font-size:17px;min-height:50px;padding:14px 24px}.review-ac
 @media(max-width:760px){.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.stat{padding:16px}.stat strong{font-size:30px}.stat .stat-label{font-size:13px!important}.topbar{flex-wrap:wrap;min-height:64px;height:auto;padding:12px 16px}.top-actions{margin-left:auto}.breadcrumb{font-size:13px}.top-actions button{font-size:12px;padding:9px}.overview-filters{padding:14px;gap:12px}.overview-filters label{min-width:calc(50% - 12px)}.overview-filters .search-label{min-width:100%}.bulk-toolbar{align-items:stretch}.bulk-toolbar button{flex:1}.finding-head{align-items:flex-start;flex-wrap:wrap}.finding h3{font-size:17px}.amount-total{font-size:30px}.chart-row{grid-template-columns:65px minmax(50px,1fr);gap:8px}.chart-row strong{grid-column:2}.page-heading h1{font-size:30px}.sidebar{box-shadow:10px 0 40px #0005}.heading-actions{align-items:center}.amount-layout .card{margin-bottom:0}.amount-layout{margin-bottom:20px}}
 
 .finding-summary{font-size:16px;line-height:1.6}.field-grid label:has(.field-label small){border-left:3px solid var(--amber);padding-left:10px}
+
+/* Uniform queue fields and actions. */
+.filters label{min-width:0;font-size:13px}.filters label input,.filters label select{width:100%;min-width:0;height:44px;min-height:44px;margin:6px 0 0;padding:10px 12px}
+.filters .refresh-button{height:44px;min-height:44px;padding:0 20px;font-size:14px}
+.bulk-toolbar button{height:44px;min-height:44px;padding:0 20px;font-size:15px;white-space:nowrap}
+.bulk-toolbar input[type=checkbox],td input[type=checkbox]{width:20px;height:20px;padding:0;margin:0;vertical-align:middle}
+.bulk-toolbar .selection-summary{font-size:14px;color:var(--ink);font-weight:600}
+button.approve-selected,button.review-button{background:#2457C5;border:1px solid #2457C5;color:#fff}
+button.approve-selected:hover,button.review-button:hover{background:#19449F;border-color:#19449F}
+button.approve-all{background:#166534;border:1px solid #166534;color:#fff}
+button.approve-all:hover{background:#115029;border-color:#115029}
+button.approve-selected:disabled,button.approve-selected:disabled:hover{background:var(--ready-bg);color:var(--ready);border-color:var(--line);cursor:not-allowed}
+button.approve-all:disabled,button.approve-all:disabled:hover{background:var(--approved-bg);color:var(--approved);border-color:var(--line);cursor:not-allowed}
+.pagination button{min-height:40px;min-width:90px;font-size:14px}
+@media(max-width:1100px){.filters{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}.filters .queue-search-label,.filters .refresh-button{grid-column:1/-1}.bulk-toolbar{grid-template-columns:1fr 1fr}.bulk-toolbar .inline-check{grid-column:1/-1}}
+@media(max-width:760px){.filters{grid-template-columns:1fr 1fr}.filters .queue-search-label,.filters .refresh-button{grid-column:1/-1}.bulk-toolbar{grid-template-columns:1fr}.bulk-toolbar .inline-check,.bulk-toolbar button{grid-column:1/-1;width:100%}.bulk-toolbar button{flex:initial}}
+
+[data-theme="dark"] button.approve-all{background:#166534;border-color:#166534;color:#fff}[data-theme="dark"] button.approve-all:hover{background:#115029;border-color:#115029}[data-theme="dark"] button.approve-all:disabled,[data-theme="dark"] button.approve-all:disabled:hover{background:var(--approved-bg);color:var(--approved);border-color:var(--line)}

@@ -64,7 +64,9 @@ intended hosting proxy. The supplied container runs behind Cloud Run.
   adapter is implemented using the server Firestore client and transactions;
   hosted integration remains a deployment verification step.
 
-The earlier UI redesign remains local and is excluded from the account commit.
+The UI redesign was subsequently published in a separate commit. Folders now
+start with the repository vendor/PO list; existing empty, unapproved folders
+receive it once. Existing invoices and account ownership are not migrated.
 Secrets and invoice databases are excluded. The example environment configuration
 is updated in Git while its pre-existing local deletion remains in the working tree.
 

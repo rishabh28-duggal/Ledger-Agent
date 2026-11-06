@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ConfigDict
 from app.domain import Invoice
-from .repository import ROOT, repository, now, encode
+from .repository import ROOT, repository, now, encode, procurement_master
 from .reader import inspect_file
 from .auth import user, User, serializer, same_origin, verify_worker
 from . import auth as accounts_auth
@@ -86,7 +86,25 @@ def valid_id(value):
     return value
 
 def get_session(store, who, sid):
-    return store.snapshot(who.uid,valid_id(sid))
+    sid=valid_id(sid)
+    meta,rows=store.snapshot(who.uid,sid)
+    # Upgrade only untouched, empty procurement lists. Recheck inside the same
+    # transaction so concurrent edits/approvals cannot be overwritten.
+    if (not meta.get('procurement_version') and not meta['master']['vendors']
+            and not meta['master']['pos'] and not any(row['accepted'] for row in rows)):
+        def initialize(meta,rows):
+            if (meta.get('procurement_version') or meta['master']['vendors'] or meta['master']['pos']
+                    or any(row['accepted'] for row in rows.values())):
+                return
+            meta['master']=procurement_master()
+            meta['procurement_version']=1
+            for row in rows.values():
+                if row.get('data') and row['execution']=='completed':
+                    decision(meta,rows,row)
+                    audit(row,'procurement_initialized',who.username,{'source':'Repository vendor and PO list'})
+        store.atomic(who.uid,sid,initialize)
+        meta,rows=store.snapshot(who.uid,sid)
+    return meta,rows
 
 def get_row(store, who, sid, iid):
     meta, rows = get_session(store,who,sid)
@@ -169,7 +187,7 @@ def owner_invoice_rows(store, who, folder='all'):
     folders = store.sessions(who.uid) if folder == 'all' else [get_session(store,who,folder)[0]]
     rows = []
     for meta in folders:
-        _, invoices = store.snapshot(who.uid,meta['id'])
+        meta, invoices = get_session(store,who,meta['id'])
         for row in invoices:
             summary = {k:v for k,v in row.items() if k not in {'original','audit','events','lease_token'}}
             rows.append({**summary,'folder_id':meta['id'],'folder_name':meta['name']})
@@ -408,6 +426,7 @@ def master(sid:str,body:Master,who:User=Depends(user),store=Depends(repo)):
         if any(r['accepted'] for r in rows.values()):
             raise Conflict('This session has approvals. Start a new session before replacing its procurement master.')
         meta['master']=master
+        meta['procurement_version']=1
         for row in rows.values():
             if row.get('data') and row['execution']=='completed':
                 decision(meta,rows,row)

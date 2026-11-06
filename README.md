@@ -15,7 +15,7 @@ Invoice review with a clear path from document to decision. This version replace
 - A readable, responsive interface: overview, uploads, review queue, invoice detail, procurement master and explained rules.
 - Username/password accounts with Argon2id password hashes and revocable server-side logins. No email address or password recovery.
 - A private demo without account creation. Each visitor gets their own signed, 24-hour demo session, fictional vendors/POs and sample invoices.
-- Registered users start with an empty procurement master; their data is scoped to a fresh, random account ID on the server.
+- Every folder starts with its own editable vendor and PO list from the repository; their data is scoped to a fresh, random account ID on the server.
 - Up to 250 PDFs/images in a browser batch, 10 MB and 30 pages per document. Files upload individually with three concurrent requests. A demo is limited to 15 invoices per session; registered sessions support 400 invoices. Start a new session to retain larger histories in separate runs.
 - Gemini PDF/image extraction with independent embedded-text extraction and local Tesseract OCR fallback. Missing data never becomes invented data.
 - Deterministic checks for vendor identity, POs, duplicates, quantities, arithmetic, tax basis, price tolerance, date and remaining PO authorisation.
@@ -75,7 +75,7 @@ other HTTPS production deployments. Serve production only over HTTPS.
 
 SQLite stores authentication records alongside invoice records in
 `data/cloud/ledger.sqlite3`; Cloud Run stores them in server-only Firestore
-collections. Registering creates a fresh account ID and empty workspace. Existing
+collections. Registering creates a fresh account ID with no invoices. New folders receive their own vendor and PO list. Existing
 Firebase-owned and demo records stay intact, but are never automatically attached
 to a username. Back up storage before upgrading; any legacy ownership transfer
 requires a separate, authenticated administrative migration. There is no automatic

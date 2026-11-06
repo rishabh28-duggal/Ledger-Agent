@@ -21,9 +21,13 @@ def now():
 def encode(value):
     return json.dumps(value, default=str, ensure_ascii=False)
 
+def procurement_master():
+    """Each folder gets its own editable copy of the repository procurement list."""
+    return json.loads((ROOT / 'samples/master.json').read_text(encoding='utf-8'))
+
 def initial(name, demo=False):
-    master = json.loads((ROOT / 'samples/master.json').read_text()) if demo else {'vendors': [], 'pos': []}
-    return dict(id=uuid.uuid4().hex, name=name, created=now(), master=master, version=0, demo=demo)
+    return dict(id=uuid.uuid4().hex, name=name, created=now(), master=procurement_master(),
+                procurement_version=1, version=0, demo=demo)
 
 class LocalRepository:
     def __init__(self, directory=DATA):

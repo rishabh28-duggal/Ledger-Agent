@@ -8,7 +8,8 @@ const element=key=>{
  if(!elements.has(key))elements.set(key,{innerHTML:'',textContent:'',dataset:{},attrs:{},classList:classes(),addEventListener(){},setAttribute(key,value){this.attrs[key]=value;}});
  return elements.get(key);
 };
-const document={querySelector:element,querySelectorAll:()=>[],documentElement:{dataset:{}},body:{classList:classes()}};
+const lists=new Map();
+const document={querySelector:element,querySelectorAll:selector=>lists.get(selector)||[],documentElement:{dataset:{}},body:{classList:classes()}};
 const fullSource=readFileSync('web/app.js','utf8');
 const source=fullSource.split("$$('[data-auth]').forEach")[0];
 const settings=fullSource.slice(fullSource.indexOf('function preference('),fullSource.indexOf("window.addEventListener('hashchange'"));
@@ -47,6 +48,19 @@ const ready=snapshot.invoices[0];
 const approved={...ready,id:'b',accepted:true,folder_id:'other',data:{...ready.data,vendor:'Another vendor',total:'50',date:'2026-10-01'}};
 const blocked={...ready,id:'c',result:{status:'Blocked'},folder_id:'folder-a'};
 const mixed=[{...ready,folder_id:'folder-a'},approved,blocked];
+snapshot.invoices=mixed;
+const boxes=mixed.map(row=>({dataset:{select:row.id},checked:false}));
+setList('[data-select]',boxes);renderQueue();
+assert(!rowsTable([blocked],{selectable:true}).match(/data-select="c"[^>]*disabled/));
+boxes[2].checked=true;boxes[2].onchange();
+assert(selectedInvoices.has('c'));assert.equal($('#approve-selected').disabled,true);assert($('#selection-summary').textContent.includes('1 selected'));
+$('#select-ready').onchange({target:{checked:true}});
+assert.equal(selectedInvoices.size,3);assert.equal($('#approve-selected').disabled,false);assert.equal($('#approve-selected').textContent,'Approve selected (1)');
+statusFilter='Blocked';renderQueue();assert.equal($('#approve-selected').disabled,true);
+$('#select-ready').onchange({target:{checked:false}});assert(!selectedInvoices.has('c'));assert(selectedInvoices.has('a'));
+statusFilter='';selectedInvoices.clear();snapshot.invoices=Array.from({length:30},(_,i)=>({...ready,id:'page-'+i}));setList('[data-select]',[]);queuePage=1;renderQueue();
+$('#select-ready').onchange({target:{checked:true}});assert.equal(selectedInvoices.size,30);assert.equal($('#approve-selected').textContent,'Approve selected (30)');
+selectedInvoices.clear();queuePage=0;snapshot.invoices=[ready];
 assert.equal(filterRows(mixed,{folder:'folder-a'}).length,2);
 assert.equal(filterRows(mixed,{outcome:'Held'}).length,1);
 assert.equal(filterRows(mixed,{dated:'7'},'2026-11-06').length,2);
@@ -60,5 +74,5 @@ const missing={...ready,id:'missing',data:{currency:'INR',total:null}};assert.eq
 const calls=[];const results=await approveInvoiceBatch([ready,approved,blocked,{...ready,id:'stale'}],async row=>{calls.push(row.id);if(row.id==='stale')throw Error('PO balance changed');});
 assert.equal(calls.join(','),'a,stale');assert.equal(results.filter(r=>r.ok).length,1);assert.equal(results[1].error,'PO balance changed');
 })()
-`,{document,window,localStorage,setMobile:value=>mobile=value,assert,console,URL,Blob,setTimeout,clearTimeout});
+`,{document,window,localStorage,setMobile:value=>mobile=value,setList:(key,value)=>lists.set(key,value),assert,console,URL,Blob,setTimeout,clearTimeout});
 Promise.resolve(result).then(()=>console.log('UI rendering, filters, grouping, currencies, bulk approval, themes and sidebar checks passed')).catch(error=>{console.error(error);process.exitCode=1;});

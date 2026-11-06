@@ -132,11 +132,11 @@ def test_worker_denied(client):
     c,_=client
     assert c.post('/internal/process',json={'uid':'x','sid':'a'*32,'iid':'b'*32,'run':1}).status_code==404
 
-def test_real_account_has_empty_master(client):
-    c,store=client;app.dependency_overrides[user]=lambda:User('account_123',False,'person@example.com')
+def test_real_account_has_repository_procurement(client):
+    c,store=client;app.dependency_overrides[user]=lambda:User('account_123',False,'analyst123')
     try:
         sid=c.post('/api/sessions',json={'name':'Real invoices'}).json()['id']
-        assert c.get('/api/sessions/'+sid).json()['session']['master']=={'vendors':[],'pos':[]}
+        assert c.get('/api/sessions/'+sid).json()['session']['master']==c.get('/api/master-template').json()
     finally:app.dependency_overrides.clear()
 
 def test_120_document_batch(tmp_path):

@@ -53,3 +53,27 @@ The recording was inspected as a visual reference; it is not included in Git.
 
 No secrets, local databases, recording or extracted video frames are committed.
 The pre-existing local deletion of `.env.example` is excluded.
+
+
+## Queue consistency and procurement follow-up
+
+- Search, Status and Group by now have uniform visible labels and 44px controls,
+  aligned with Refresh. Bulk actions have equal heights, with blue for selected
+  approval and green for approving all ready invoices. Disabled actions retain
+  readable tinted states. Review buttons are blue.
+- All rows can be selected, including blocked/review invoices. Select all covers
+  every matching page. The summary distinguishes selected invoices from those
+  eligible for approval; non-ready invoices cannot bypass checks. Selecting all
+  updates the controls without replacing the focused checkbox.
+- New folders contain independent copies of the repository vendor/PO records,
+  displayed as ordinary procurement data. Existing untouched empty lists are
+  initialized on access, with existing completed invoices rechecked and audited.
+  Custom lists, folders with approvals and deliberately cleared lists stay intact.
+  Invoice data, files, duplicate history and account IDs are not reassigned.
+- The former sample-master loading control is removed from the interface.
+- Verification: 46 backend tests passed. The one remaining OCR test requires the
+  missing native Tesseract program. JavaScript checks cover selecting blocked rows,
+  select-all across pages, eligibility counts, filters and existing UI behaviors.
+  New procurement tests cover initialization, independent folders, revalidation,
+  idempotence and preservation of custom/approved/intentionally empty data.
+- Browser access remained unavailable, so visual layout verification is pending.
