@@ -2,32 +2,29 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Ledger — Invoice review, made clear</title>
+<title>Ledger — Invoice review</title>
 <meta name="description" content="Read invoices, check purchase orders, and make confident review decisions with a visible audit trail.">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='10' fill='%231c5148'/%3E%3Cpath d='M12 10v20h18' fill='none' stroke='%23fff' stroke-width='4'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' fill='%232457C5'/%3E%3Cpath d='M12 10v20h18' fill='none' stroke='%23fff' stroke-width='4'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="/static/style.css"><script src="/static/app.js" type="module"></script>
 </head>
 <body>
 <a href="#content" class="skip">Skip to content</a>
 <div id="landing">
-<header class="landing-header"><a class="brand" href="/"><span class="brand-icon">L</span>Ledger<span class="brand-sub">INVOICE REVIEW</span></a><button class="quiet" data-auth="login">Log in <span aria-hidden="true">↗</span></button></header>
+<header class="landing-header"><a class="brand" href="/"><span class="brand-icon">L</span>Ledger<span class="brand-sub">INVOICE REVIEW</span></a><button class="quiet" data-auth="login">Log in</button></header>
 <main class="landing-main" id="welcome">
-<div class="eyebrow"><span class="pulse"></span> A CLEARER WAY TO CLOSE THE LOOP</div>
-<h1>Less chasing invoices.<br><em>More clarity.</em></h1>
-<p class="hero-copy">From a messy PDF to a reasoned decision. Read every invoice, check it against your purchase orders, and see exactly what needs attention.</p>
-<div class="hero-actions"><button class="primary large" id="try-demo">Try the demo <span aria-hidden="true">↗</span></button><button class="secondary large" data-auth="signup">Create an account</button></div>
-<p class="micro">No account needed for the demo. Your workspace is private.</p>
-<div class="workflow-strip"><div><span>01</span><strong>Upload</strong><p>PDFs, scans and photos</p></div><div><span>02</span><strong>Understand</strong><p>Fields with source evidence</p></div><div><span>03</span><strong>Check</strong><p>Vendors, POs and numbers</p></div><div><span>04</span><strong>Decide</strong><p>You make the final approval</p></div></div>
-<div class="landing-bottom"><p>BUILT FOR THE PERSON BEHIND THE PROCESS</p><p>AI reads. Rules check. People approve.</p></div>
+<h1>Invoice review.</h1>
+<p class="hero-copy">Check invoices against vendors and purchase orders, resolve findings, and record approvals.</p>
+<div class="hero-actions"><button class="primary" data-auth="login">Log in</button><button class="secondary" data-auth="signup">Create account</button><button class="secondary" id="try-demo">Try demo</button></div>
+<p class="micro">The demo includes fictional vendors, purchase orders and sample invoices. No account required.</p>
 </main>
 </div>
 <div id="shell" hidden>
-<aside class="sidebar" id="sidebar"><a class="brand" href="#dashboard"><span class="brand-icon">L</span>Ledger</a><p class="side-caption">YOUR REVIEW WORKSPACE</p>
-<nav aria-label="Main navigation"><a href="#dashboard" data-page="dashboard"><span aria-hidden="true">◫</span>Overview</a><a href="#upload" data-page="upload"><span aria-hidden="true">↥</span>Upload invoices</a><a href="#queue" data-page="queue"><span aria-hidden="true">▤</span>Review queue <b id="queue-count">0</b></a><a href="#master" data-page="master"><span aria-hidden="true">▦</span>Vendors & POs</a><a href="#rules" data-page="rules"><span aria-hidden="true">◎</span>How checks work</a></nav>
-<div class="session-area"><label for="sessions">REVIEW SESSION</label><select id="sessions"></select><button id="new-session" class="quiet">＋ New session</button><p>Each session has its own invoices, procurement data and duplicate checks.</p></div>
+<aside class="sidebar" id="sidebar"><a class="brand" href="#dashboard"><span class="brand-icon">L</span>Ledger</a>
+<nav aria-label="Main navigation"><a href="#dashboard" data-page="dashboard"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z"/></svg>Overview</a><a href="#upload" data-page="upload"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V3m-5 5 5-5 5 5M4 16v5h16v-5"/></svg>Upload invoices</a><a href="#queue" data-page="queue"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v16H4zM8 8h8M8 12h8M8 16h5"/></svg>Review queue <b id="queue-count">0</b></a><a href="#master" data-page="master"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 21V7l9-4 9 4v14M8 21v-7h8v7M7 9h2m6 0h2"/></svg>Vendors & POs</a><a href="#rules" data-page="rules"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16M9 3v6m6 0v6m-6 0v6"/></svg>Rules</a></nav>
+<div class="session-area"><label for="sessions">Current folder</label><select id="sessions"></select><button id="new-session" class="quiet">New folder</button><p>Your folders keep invoices, duplicate checks and PO balances separate.</p></div>
 <div class="side-bottom"><div id="identity"></div><button id="signout" class="quiet">Log out</button></div></aside>
-<div class="workspace"><header class="topbar"><button id="mobile-menu" class="icon-button" aria-label="Toggle menu" aria-expanded="false">☰</button><span class="breadcrumb">Workspace <span>/</span> <strong id="crumb">Overview</strong></span><div class="top-actions"><span id="reader-status" class="soft-label"></span><button class="secondary small" id="export-csv">Export CSV</button></div></header><div id="demo-banner" hidden><strong>You’re in your private demo.</strong><span>Try a sample or upload an invoice. Up to 15 invoices per session; access lasts 24 hours.</span><button class="text-button" data-auth="signup">Create account ↗</button></div>
-<main id="content" tabindex="-1"><div id="page"></div></main><footer class="app-footer"><span>Ledger · Every decision has a reason.</span><span>Review support only. No payments are initiated.</span></footer></div></div>
+<div class="workspace"><header class="topbar"><button id="mobile-menu" class="icon-button" aria-label="Toggle menu" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button><span class="breadcrumb">Workspace <span>/</span> <strong id="crumb">Overview</strong></span><div class="top-actions"><span id="reader-status" class="soft-label"></span><button class="secondary small" id="export-csv">Export CSV</button></div></header><div id="demo-banner" hidden><strong>You’re in your private demo.</strong><span>Try a sample or upload an invoice. Up to 15 invoices per folder; access lasts 24 hours.</span><button class="text-button" data-auth="signup">Create account</button></div>
+<main id="content" tabindex="-1"><div id="page"></div></main><footer class="app-footer"><span>Ledger · Invoice review</span><span>Review support only. No payments are initiated.</span></footer></div></div>
 <dialog id="auth-dialog" class="dialog auth-dialog"><form method="dialog"><button class="close" aria-label="Close">×</button></form><span class="brand-icon">L</span><h2 id="auth-title">Welcome back</h2><p id="auth-description">Open your private invoice workspace.</p><div class="auth-tabs"><button data-auth-mode="login" class="active">Log in</button><button data-auth-mode="signup">Create account</button></div><form id="auth-form"><label>Username<input id="username" type="text" autocomplete="username" minlength="3" maxlength="32" required aria-describedby="username-help"></label><p id="username-help" class="micro">3?32 letters, numbers, dots, underscores or hyphens. Numeric usernames such as 123 are allowed.</p><label>Password<input id="password" type="password" autocomplete="current-password" minlength="8" maxlength="1024" required></label><p id="auth-error" class="error" role="alert"></p><button class="primary full" id="auth-submit" type="submit">Log in</button></form><div class="auth-separator">or explore first</div><button id="auth-demo" class="secondary full">Try a private demo</button><p id="auth-config-note" class="micro"></p></dialog>
 <dialog id="general-dialog" class="dialog"><form method="dialog"><button class="close" aria-label="Close">×</button></form><div id="dialog-content"></div></dialog>
 <div id="toast" role="status" hidden></div><div class="sr-only" id="announcement" aria-live="polite"></div>
