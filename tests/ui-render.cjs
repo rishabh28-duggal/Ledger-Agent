@@ -88,6 +88,10 @@ moreFilters();let draftForm=drawer.querySelector('form');draftForm.elements.min.
 moreFilters();draftForm=drawer.querySelector('form');draftForm.elements.min.value='200';draftForm.elements.max.value='100';draftForm.onsubmit({preventDefault(){}});assert(drawer.querySelector('#range-error').textContent);assert.equal(dashboardFilters.min,'');
 draftForm.elements.max.value='300';draftForm.elements.vendor.value='Acme';draftForm.elements.po.value='PO-1';draftForm.onsubmit({preventDefault(){}});assert.equal(dashboardFilters.vendor,'Acme');assert.equal(dashboardFilters.min,'200');assert.equal($('#more-filters').textContent,'Filters (3)');
 moreFilters();drawer.querySelector('#draft-clear').onclick();assert.equal(drawer.querySelector('form').elements.vendor.value,'');assert.equal(dashboardFilters.vendor,'Acme');drawer.querySelector('#draft-cancel').onclick();clearDashboard();
+// Procurement controls and previews expose user-facing values and escape uploaded text.
+renderMaster();assert($('#page').innerHTML.includes('Import vendor Excel'));assert($('#page').innerHTML.includes('Download vendor template'));assert($('#page').innerHTML.includes('Import vendors &amp; POs'));assert($('#page').innerHTML.includes('JSON backup containing vendors and purchase orders.'));
+const importHtml=vendorImportPreview({counts:{new:0,existing:1,conflicts:0,invalid:0},rows:[{row:2,values:{name:'<unsafe>',gstin:'',status:'approved'},action:'Existing',errors:[],defaulted:true}]});
+assert(importHtml.includes('&lt;unsafe&gt;'));assert(importHtml.includes('Skip existing'));assert(importHtml.includes('default: Active'));assert(importHtml.includes('will be skipped'));
 renderQueue();assert($('#page').innerHTML.includes('Approve all ready'));
 renderUpload();assert(!$('#page').innerHTML.includes('Sample invoices'));assert($('#page').innerHTML.includes('Run invoice checks'));
 files=[{name:'unsafe<script>.pdf',size:1024}];uploadResults=[{error:'Invalid <PDF>'}];

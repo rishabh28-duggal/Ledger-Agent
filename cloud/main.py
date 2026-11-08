@@ -7,6 +7,7 @@ import json
 import os
 import re
 import uuid
+import time
 from contextlib import asynccontextmanager
 from decimal import Decimal
 from pathlib import Path
@@ -22,6 +23,8 @@ from .auth import user, User, serializer, same_origin, verify_worker
 from . import auth as accounts_auth
 from .accounts import SQLiteAccounts, FirestoreAccounts
 from .engine import Dispatcher, Conflict, process, new_record, decision, event, audit
+from . import vendor_import as vendor_sheet
+from itsdangerous import BadSignature
 
 @asynccontextmanager
 async def lifespan(app):
@@ -437,6 +440,95 @@ def master(sid:str,body:Master,who:User=Depends(user),store=Depends(repo)):
 @app.get('/api/master-template')
 def template(who:User=Depends(user)):
     return json.loads((ROOT/'samples/master.json').read_text())
+
+
+@app.get('/api/vendor-template.xlsx')
+def vendor_template(who:User=Depends(user)):
+    return Response(vendor_sheet.template_bytes(), media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    headers={'Content-Disposition':'attachment; filename="ledger-vendors-template.xlsx"'})
+
+
+@app.post('/api/sessions/{sid}/vendor-import/preview')
+async def preview_vendors(sid:str, file:UploadFile=File(...), sheet:str=Form(''), update:bool=Form(False),
+                          who:User=Depends(user), store=Depends(repo)):
+    valid_id(sid)
+    meta, invoices = store.snapshot(who.uid,sid)  # Preview never initializes or writes procurement data.
+    raw = await file.read(vendor_sheet.MAX_BYTES+1)
+    try:
+        parsed = vendor_sheet.parse(raw,file.filename or '',sheet)
+    except vendor_sheet.ImportInvalid as exc:
+        raise HTTPException(400,str(exc)) from exc
+    if parsed.get('choose_sheet'):
+        return parsed
+    locked = any(r['accepted'] for r in invoices)
+    planned = vendor_sheet.plan(parsed['rows'],meta['master'],update,locked)
+    token = serializer().dumps({'uid':who.uid,'sid':sid,'id':uuid.uuid4().hex,'master':vendor_sheet.fingerprint(meta),
+                                'locked':locked,'update':update,'rows':parsed['rows']},salt='ledger-vendor-import-v1')
+    return {'token':token,'folder':meta['name'],'rows':planned,'counts':vendor_sheet.counts(planned),
+            'sheets':parsed['sheets'],'sheet':parsed['sheet'],'locked':locked}
+
+
+class VendorImportConfirm(BaseModel):
+    model_config=ConfigDict(extra='forbid')
+    token:str=Field(min_length=1,max_length=2_000_000)
+
+
+@app.post('/api/sessions/{sid}/vendor-import/confirm')
+def confirm_vendors(sid:str,body:VendorImportConfirm,who:User=Depends(user),store=Depends(repo)):
+    valid_id(sid)
+    # Check ownership even for a signed preview or repeated confirmation.
+    store.snapshot(who.uid,sid)
+    try:
+        payload=serializer().loads(body.token,salt='ledger-vendor-import-v1',max_age=900)
+    except BadSignature as exc:
+        raise HTTPException(400,'This preview expired or is invalid. Preview the file again.') from exc
+    if payload.get('uid')!=who.uid or payload.get('sid')!=sid:
+        raise HTTPException(404,'This preview was not found in this folder.')
+    def apply(meta,rows):
+        receipts=meta.setdefault('vendor_import_receipts',{})
+        if payload['id'] in receipts:
+            return receipts[payload['id']]['result']
+        locked=any(row['accepted'] for row in rows.values())
+        if vendor_sheet.fingerprint(meta)!=payload['master'] or locked!=payload['locked']:
+            raise Conflict('Procurement changed after preview. Preview the file again before importing.')
+        if locked:
+            raise Conflict('This folder contains approvals and procurement is locked. Start a new folder.')
+        planned=vendor_sheet.plan(payload['rows'],meta['master'],payload['update'],locked)
+        eligible=[r for r in planned if r['action'] in {'New','Update'}]
+        if not eligible:
+            raise Conflict('No eligible vendors. Correct the file or choose explicit updates and preview again.')
+        result=dict(imported=0,updated=0,skipped=0,failed=0,rows=[])
+        for item in planned:
+            if item['action'] in {'New','Update'}:
+                value=Vendor.model_validate(item['changes']['after']).model_dump(mode='json')
+                if item['action']=='New':
+                    meta['master']['vendors'].append(value);result['imported']+=1
+                else:
+                    index=next(i for i,v in enumerate(meta['master']['vendors']) if v['id']==item['vendor_id'])
+                    meta['master']['vendors'][index]=value;result['updated']+=1
+            else:
+                result['skipped']+=1
+            result['rows'].append({'row':item['row'],'name':item['values']['name'],'action':item['action'],'errors':item['errors']})
+        if len(encode(meta['master']).encode())>400_000:
+            raise Conflict('Procurement data would exceed this folder limit. No vendors were imported.')
+        meta['procurement_version']=1
+        for row in rows.values():
+            if not row['accepted'] and row.get('data') and row['execution']=='completed':
+                decision(meta,rows,row)
+                audit(row,'vendors_imported',who.username,{'import':payload['id'],'imported':result['imported'],'updated':result['updated']})
+        meta.setdefault('procurement_audit',[]).append({'at':now(),'action':'vendors_imported','actor':who.username,
+                                                     'import':payload['id'],'imported':result['imported'],'updated':result['updated'],
+                                                     'changes':[item['changes'] for item in eligible]})
+        # Keep receipts for the entire token lifetime. Atomic retry returns the same result.
+        receipts={key:value for key,value in receipts.items() if value['until']>time.time()}
+        if len(receipts)>=100:
+            raise Conflict('Too many recent imports. Wait 15 minutes before another import.')
+        receipts[payload['id']]={'until':time.time()+900,'result':result}
+        meta['vendor_import_receipts']=receipts
+        if len(encode(meta).encode())>800_000:
+            raise Conflict('This folder has reached its procurement history limit. No vendors were imported.')
+        return result
+    return store.atomic(who.uid,sid,apply)
 
 @app.get('/api/samples')
 def samples(who:User=Depends(user)):

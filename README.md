@@ -92,6 +92,10 @@ Real account history is separate from demo history. Uploaded invoice data is sen
 to Gemini only when the Gemini reader is selected/available; local-only upload
 mode skips Gemini. Firestore and Cloud Storage continue to use server IAM.
 
+## Vendor imports
+
+Import vendor XLSX/CSV files through a validated preview and explicit confirmation on Vendors & POs. Download the template and JSON backups from Backup & template. JSON import replaces the vendor/PO list after confirmation; spreadsheet import adds or explicitly updates vendors only. See [vendor import guide](docs/VENDOR-IMPORT.md) for limits, matching, locks and validation.
+
 ## Structure
 
 ```text
