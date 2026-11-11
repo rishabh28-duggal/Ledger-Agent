@@ -38,13 +38,24 @@ let waiting=confirmReviewLeave();document.lastDialog.querySelector('#review-stay
 waiting=confirmReviewLeave();document.lastDialog.querySelector('#review-discard').onclick();assert.equal(await waiting,true);assert.equal(reviewContext.dirty,false);
 markReviewDirty(false);let savedPayload;
 json=async(path,options)=>{savedPayload=JSON.parse(options.body);return {};};refresh=async()=>snapshot;
-assert.equal(await saveReview(false),true);assert.equal(savedPayload.expected_run,1);assert.equal(savedPayload.data.total,'150');assert.equal(savedPayload.po,'PO-42');assert.equal(reviewContext.dirty,false);assert.equal(fixture.accepted,false);
+assert.equal(await saveReview(false),true);assert.equal(savedPayload.expected_run,1);assert.equal(savedPayload.data.total,'150');assert.equal(savedPayload.po,'PO-42');assert.equal(reviewContext.dirty,false);assert.equal(reviewContext.dataDirty,false);assert.equal(fixture.accepted,false);
 reviewContext.row={...fixture,result:{status:'Ready for approval'}};reviewContext.stale=false;updateReviewActions();assert.equal($('#approve').disabled,false);markReviewDirty();assert.equal($('#approve').disabled,true);
+// Clean Save is quiet; confirmation-only changes enable it and can be undone.
+reviewContext.dirty=false;reviewContext.dataDirty=false;$('#confirm-source').checked=false;updateReviewActions();assert.equal($('#review-save').disabled,true);
+$('#confirm-source').checked=true;markReviewDirty(false);assert.equal($('#review-save').disabled,false);assert.equal($('#review-save').textContent,'Save confirmation');
+$('#confirm-source').checked=false;markReviewDirty(false);assert.equal(reviewContext.dirty,false);assert.equal($('#review-save').disabled,true);
+// A pending approval cannot be submitted again, including during action refresh.
+let approveCalls=0,rejectApproval;json=async()=>{approveCalls++;return new Promise((resolve,reject)=>rejectApproval=reject);};
+const approvalHandler=$('#approve').onclick,pendingApproval=approvalHandler({target:$('#approve')});await approvalHandler({target:$('#approve')});
+assert.equal(approveCalls,1);assert.equal($('#approve').disabled,true);assert.equal($('#approve').textContent,'Approving...');
+rejectApproval(Error('Approval changed'));await pendingApproval;assert.equal(reviewContext.approving,false);assert.equal(reviewContext.stale,true);
 reviewContext.dirty=false;reviewContext.row.accepted=true;updateReviewActions();assert.equal($('#approve').disabled,true);assert.equal($('#review-save').disabled,true);
 // Returning to the queue retains existing criteria, page and outer scroll.
 search='Vendor';statusFilter='Blocked';queuePage=2;queueGroup='vendor';queueScroll=250;
 snapshot.invoices=Array.from({length:60},(_,i)=>({...fixture,id:String(i),filename:'Vendor.pdf',data:{vendor:'Vendor'},result:{status:'Blocked'}}));
 reviewContext.dirty=false;location.hash='#queue';await route({skipGuard:true});assert.equal(search,'Vendor');assert.equal(statusFilter,'Blocked');assert.equal(queuePage,2);assert.equal(queueGroup,'vendor');assert.equal(window.lastScroll.top,250);
+// Dashboard return restores its own scroll without replacing queue state.
+page='detail';overviewRows=[];overviewScroll=410;location.hash='#dashboard';await route({skipGuard:true});assert.equal(window.lastScroll.top,410);assert.equal(queuePage,2);
 json=originalJson;api=originalApi;
 })()`,{document,window,location,history,assert,console,Blob,URL,structuredClone,setTimeout,clearTimeout,requestAnimationFrame:fn=>fn(),sessionStorage:{setItem(){}}});
 Promise.resolve(result).then(()=>console.log('Review grouping, tabs, drafts, save failure, approval guards and queue-context checks passed')).catch(error=>{console.error(error);process.exitCode=1;});

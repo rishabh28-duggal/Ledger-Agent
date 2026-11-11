@@ -25,7 +25,7 @@ const darkTokens={...lightTokens,...tokenMap(stylesheet.match(/\[data-theme="dar
 const token=(name,tokens)=>tokens[name].startsWith('var(')?token(tokens[name].slice(6,-1),tokens):tokens[name].replace('#','');
 const luminance=hex=>[0,2,4].map(i=>parseInt(hex.slice(i,i+2),16)/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4).reduce((n,v,i)=>n+v*[.2126,.7152,.0722][i],0);
 for(const tokens of [lightTokens,darkTokens]){
- const pairs=[['review-back-text','review-back-bg'],['review-back-text','brand-accent'],['text','surface'],['text-muted','surface'],['text-muted','surface-muted'],['action-text','action-bg'],['action-text','action-hover'],['link','surface'],['sidebar-text','sidebar-bg'],['accent-text','surface'],...['approved','review','ready','blocked','processing'].map(s=>['status-'+s+'-text','status-'+s+'-bg']),...['approved','review','ready','blocked'].map(s=>['text','status-'+s+'-bg'])];
+ const pairs=[['review-back-text','review-back-bg'],['review-back-text','mark-bg'],['text','surface'],['text-muted','surface'],['text-muted','surface-muted'],['action-text','action-bg'],['action-text','action-hover'],['link','surface'],['sidebar-text','sidebar-bg'],['accent-text','surface'],...['total','review','ready','approved','blocked'].map(s=>['summary-'+s+'-text','summary-'+s+'-bg']),...['approved','review','ready','blocked','processing'].map(s=>['status-'+s+'-text','status-'+s+'-bg']),...['approved','review','ready','blocked'].map(s=>['text','status-'+s+'-bg'])];
  for(const [fg,bg] of pairs){const [a,b]=[luminance(token(fg,tokens)),luminance(token(bg,tokens))].sort((a,b)=>a-b);assert((b+.05)/(a+.05)>=4.5,fg+' / '+bg);}
 }
 const source=fullSource.split("$$('[data-auth]').forEach")[0];
