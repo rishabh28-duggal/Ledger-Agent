@@ -29,7 +29,7 @@ def audit(row, action, actor, details=None):
 
 def decision(meta, rows, row):
     earlier = [h for h in rows.values() if h['id'] != row['id'] and h.get('data') and (h.get('accepted') or (h['created'],h['id']) < (row['created'],row['id']))]
-    result = evaluate(Invoice.model_validate(row['data']), meta['master']['vendors'], meta['master']['pos'], list(rows.values()), row['id'], row['hash'], row.get('selected_po'), duplicate_history=earlier)
+    result = evaluate(Invoice.model_validate(row['data']), meta['master']['vendors'], meta['master']['pos'], list(rows.values()), row['id'], row['hash'], row.get('selected_po'), duplicate_history=earlier,receipts=meta.get('receipts',{}),bank_accounts=meta.get('bank_accounts',{}),bank_verification=row.get('bank_verification'))
     if row.get('result') != result:
         row['updated'] = now()
     row['result'] = result

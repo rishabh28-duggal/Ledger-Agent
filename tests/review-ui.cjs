@@ -1,0 +1,50 @@
+// Exercise real review handlers with a stateful DOM harness; not visual browser QA.
+const {readFileSync}=require('node:fs');
+const {runInNewContext}=require('node:vm');
+const assert=require('node:assert/strict');
+const nodes=new Map(),lists=new Map();
+function node(key){if(!nodes.has(key))nodes.set(key,{innerHTML:'',textContent:'',value:'',checked:false,hidden:false,disabled:false,tabIndex:0,scrollTop:0,style:{},dataset:{},attrs:{},listeners:{},classList:{add(){},remove(){},toggle(){},contains(){return false;}},setAttribute(k,v){this.attrs[k]=v;},focus(){document.activeElement=this;},scrollIntoView(){},insertAdjacentHTML(position,html){this.innerHTML+=html;},querySelector(selector){return selector==='img'?null:node(key+' '+selector);},querySelectorAll(){return [];},reportValidity(){return true;},addEventListener(k,fn){(this.listeners[k]??=[]).push(fn);},showModal(){this.open=true;},close(){this.open=false;for(const fn of this.listeners.close||[])fn();},remove(){}});return nodes.get(key);}
+const document={querySelector:node,querySelectorAll:s=>lists.get(s)||[],body:{classList:{add(){},remove(){},toggle(){}},append(el){document.lastDialog=el;}},createElement:()=>node('dialog-'+nodes.size)};
+const window={scrollY:250,scrollTo:value=>window.lastScroll=value,matchMedia:()=>({matches:false})};
+const location={hash:'#invoice/'+ 'a'.repeat(32)+'/'+ 'b'.repeat(32)};
+const history={replaceState:(s,t,hash)=>location.hash=hash};
+const source=readFileSync('web/app.js','utf8').split("$$('[data-auth]').forEach")[0];
+const result=runInNewContext(source+`function syncSidebar(){}
+(async()=>{
+who={demo:true};sid='a'.repeat(32);selected='b'.repeat(32);page='detail';
+snapshot={session:{name:'Review folder',master:{vendors:[],pos:[]}},invoices:[]};
+const fixture={id:selected,filename:'invoice.pdf',pages:2,mime:'application/pdf',run:1,execution:'completed',accepted:false,data:{invoice_no:'INV-1',vendor:'Vendor',total:'100',currency:'INR',lines:[],evidence:{},uncertain_fields:[]},events:[],audit:[],result:{status:'Needs review',checks:[
+ {code:'missing_total',level:'review',message:'Total missing',fix:'Ask vendor',evidence:{field:'total'}},
+ {code:'duplicate_file',level:'block',message:'Duplicate file',fix:'Open original',evidence:{}},
+ {code:'total',level:'not_evaluated',message:'Waiting for total',fix:'Supply total',evidence:{missing:['total']}},
+ {code:'line_math_0',level:'pass',message:'Line passed',fix:'No action',evidence:{line:1}},
+ {code:'receipt_optional',level:'info',message:'Receipt matching not required',fix:'No delivery match claimed',evidence:{}},
+ {code:'bank_match',level:'review',message:'Bank mismatch',fix:'Verify independently',evidence:{invoice_account:'****1234'}}]}};
+const group=groupedFindings(fixture.result.checks);assert.equal(group.reduce((n,g)=>n+g.checks.length,0),6);assert.equal(group[0].key,'identity');assert.equal(group.find(g=>g.key==='passed').checks.length,1);assert.equal(group.find(g=>g.key==='waiting').checks.length,1);
+assert(reviewSummary(fixture).includes('1 blocking'));assert(!displayFinding(fixture.result.checks[0]).includes('Ask vendor'));assert(displayFinding(fixture.result.checks[0]).includes('enter the value if shown'));
+const html=issueGroupsHTML(fixture);assert(html.includes('data-issue-group="passed"'));assert(!html.match(/data-issue-group="passed" open/));assert(html.includes('Waiting on information'));assert(!followupDraft({...fixture,result:{checks:[fixture.result.checks[0]]}}));
+const originalJson=json,originalApi=api;
+json=async()=>structuredClone(fixture);api=async()=>({blob:async()=>new Blob(['pdf'],{type:'application/pdf'})});
+$('#review-form').elements=Object.fromEntries(fields.map(([k])=>[k,{value:String(fixture.data[k]||'')} ]));
+await renderDetail();
+assert($('#page').innerHTML.includes('role="tablist"'));assert($('#page').innerHTML.includes('form="review-form"'));assert($('#page').innerHTML.includes('Review queue'));assert($('#page').innerHTML.includes('Original extraction (bank details masked)'));
+$('#review-form').elements.total.value='150';$('#review-po').value='PO-42';$('#confirm-source').checked=true;
+switchReviewTab('details');const formRef=$('#review-form');switchReviewTab('activity');switchReviewTab('details');assert.equal($('#review-form'),formRef);assert.equal(formRef.elements.total.value,'150');assert.equal($('#review-po').value,'PO-42');assert.equal($('#confirm-source').checked,true);
+markReviewDirty();assert.equal($('#confirm-source').checked,false);assert.equal($('#approve').disabled,true);assert.equal($('#review-save-state').textContent,'Unsaved changes');
+$('#confirm-source').checked=true;markReviewDirty(false);switchReviewTab('issues');assert.equal($('#confirm-source').checked,true);
+const typedHtml=$('#page').innerHTML;notifyReviewUpdate({...fixture,updated:'new'});assert.equal($('#page').innerHTML,typedHtml);assert.equal(formRef.elements.total.value,'150');assert.equal($('#approve').disabled,true);
+json=async()=>{throw Error('Stale revision');};assert.equal(await saveReview(false),false);assert.equal(formRef.elements.total.value,'150');assert.equal(reviewContext.dirty,true);assert($('#review-error').textContent.includes('edits are retained'));
+let waiting=confirmReviewLeave();document.lastDialog.querySelector('#review-stay').onclick();assert.equal(await waiting,false);assert.equal(reviewContext.dirty,true);
+waiting=confirmReviewLeave();document.lastDialog.querySelector('#review-discard').onclick();assert.equal(await waiting,true);assert.equal(reviewContext.dirty,false);
+markReviewDirty(false);let savedPayload;
+json=async(path,options)=>{savedPayload=JSON.parse(options.body);return {};};refresh=async()=>snapshot;
+assert.equal(await saveReview(false),true);assert.equal(savedPayload.expected_run,1);assert.equal(savedPayload.data.total,'150');assert.equal(savedPayload.po,'PO-42');assert.equal(reviewContext.dirty,false);assert.equal(fixture.accepted,false);
+reviewContext.row={...fixture,result:{status:'Ready for approval'}};reviewContext.stale=false;updateReviewActions();assert.equal($('#approve').disabled,false);markReviewDirty();assert.equal($('#approve').disabled,true);
+reviewContext.dirty=false;reviewContext.row.accepted=true;updateReviewActions();assert.equal($('#approve').disabled,true);assert.equal($('#review-save').disabled,true);
+// Returning to the queue retains existing criteria, page and outer scroll.
+search='Vendor';statusFilter='Blocked';queuePage=2;queueGroup='vendor';queueScroll=250;
+snapshot.invoices=Array.from({length:60},(_,i)=>({...fixture,id:String(i),filename:'Vendor.pdf',data:{vendor:'Vendor'},result:{status:'Blocked'}}));
+reviewContext.dirty=false;location.hash='#queue';await route({skipGuard:true});assert.equal(search,'Vendor');assert.equal(statusFilter,'Blocked');assert.equal(queuePage,2);assert.equal(queueGroup,'vendor');assert.equal(window.lastScroll.top,250);
+json=originalJson;api=originalApi;
+})()`,{document,window,location,history,assert,console,Blob,URL,structuredClone,setTimeout,clearTimeout,requestAnimationFrame:fn=>fn(),sessionStorage:{setItem(){}}});
+Promise.resolve(result).then(()=>console.log('Review grouping, tabs, drafts, save failure, approval guards and queue-context checks passed')).catch(error=>{console.error(error);process.exitCode=1;});

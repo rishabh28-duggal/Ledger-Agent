@@ -5,7 +5,7 @@ const assert=require('node:assert/strict');
 const elements=new Map();
 function classes(){const items=new Set();return {contains:key=>items.has(key),add:key=>items.add(key),remove:key=>items.delete(key),toggle(key,force){const on=force===undefined?!items.has(key):force;if(on)items.add(key);else items.delete(key);return on;}};}
 const element=key=>{
- if(!elements.has(key))elements.set(key,{innerHTML:'',textContent:'',dataset:{},attrs:{},classList:classes(),addEventListener(){},setAttribute(key,value){this.attrs[key]=value;},removeAttribute(key){delete this.attrs[key];},focus(){document.activeElement=this;},close(){this.open=false;}});
+ if(!elements.has(key))elements.set(key,{innerHTML:'',insertAdjacentHTML(position,html){this.innerHTML+=html;},textContent:'',dataset:{},attrs:{},classList:classes(),addEventListener(){},setAttribute(key,value){this.attrs[key]=value;},removeAttribute(key){delete this.attrs[key];},focus(){document.activeElement=this;},close(){this.open=false;}});
  return elements.get(key);
 };
 const lists=new Map();
@@ -25,7 +25,7 @@ const darkTokens={...lightTokens,...tokenMap(stylesheet.match(/\[data-theme="dar
 const token=(name,tokens)=>tokens[name].startsWith('var(')?token(tokens[name].slice(6,-1),tokens):tokens[name].replace('#','');
 const luminance=hex=>[0,2,4].map(i=>parseInt(hex.slice(i,i+2),16)/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4).reduce((n,v,i)=>n+v*[.2126,.7152,.0722][i],0);
 for(const tokens of [lightTokens,darkTokens]){
- const pairs=[['text','surface'],['text-muted','surface'],['text-muted','surface-muted'],['action-text','action-bg'],['action-text','action-hover'],['link','surface'],['sidebar-text','sidebar-bg'],['accent-text','surface'],...['approved','review','ready','blocked','processing'].map(s=>['status-'+s+'-text','status-'+s+'-bg']),...['approved','review','ready','blocked'].map(s=>['text','status-'+s+'-bg'])];
+ const pairs=[['review-back-text','review-back-bg'],['review-back-text','brand-accent'],['text','surface'],['text-muted','surface'],['text-muted','surface-muted'],['action-text','action-bg'],['action-text','action-hover'],['link','surface'],['sidebar-text','sidebar-bg'],['accent-text','surface'],...['approved','review','ready','blocked','processing'].map(s=>['status-'+s+'-text','status-'+s+'-bg']),...['approved','review','ready','blocked'].map(s=>['text','status-'+s+'-bg'])];
  for(const [fg,bg] of pairs){const [a,b]=[luminance(token(fg,tokens)),luminance(token(bg,tokens))].sort((a,b)=>a-b);assert((b+.05)/(a+.05)>=4.5,fg+' / '+bg);}
 }
 const source=fullSource.split("$$('[data-auth]').forEach")[0];
@@ -90,6 +90,7 @@ draftForm.elements.max.value='300';draftForm.elements.vendor.value='Acme';draftF
 moreFilters();drawer.querySelector('#draft-clear').onclick();assert.equal(drawer.querySelector('form').elements.vendor.value,'');assert.equal(dashboardFilters.vendor,'Acme');drawer.querySelector('#draft-cancel').onclick();clearDashboard();
 // Procurement controls and previews expose user-facing values and escape uploaded text.
 renderMaster();assert($('#page').innerHTML.includes('Import vendor Excel'));assert($('#page').innerHTML.includes('Download vendor template'));assert($('#page').innerHTML.includes('Import vendors &amp; POs'));assert($('#page').innerHTML.includes('JSON backup containing vendors and purchase orders.'));
+assert($('#page').innerHTML.includes('Goods received'));assert($('#page').innerHTML.includes('Trusted bank details'));
 const importHtml=vendorImportPreview({counts:{new:0,existing:1,conflicts:0,invalid:0},rows:[{row:2,values:{name:'<unsafe>',gstin:'',status:'approved'},action:'Existing',errors:[],defaulted:true}]});
 assert(importHtml.includes('&lt;unsafe&gt;'));assert(importHtml.includes('Skip existing'));assert(importHtml.includes('default: Active'));assert(importHtml.includes('will be skipped'));
 renderQueue();assert($('#page').innerHTML.includes('Approve all ready'));

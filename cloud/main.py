@@ -8,11 +8,11 @@ import os
 import re
 import uuid
 import time
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, closing
 from decimal import Decimal
 from pathlib import Path
 
-from fastapi import FastAPI, Depends, Request, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, Depends, Request, UploadFile, File, Form, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ConfigDict
@@ -24,6 +24,8 @@ from . import auth as accounts_auth
 from .accounts import SQLiteAccounts, FirestoreAccounts
 from .engine import Dispatcher, Conflict, process, new_record, decision, event, audit
 from . import vendor_import as vendor_sheet
+from . import procurement_controls as controls
+from app.controls import BANK_FIELDS, masked
 from itsdangerous import BadSignature
 
 @asynccontextmanager
@@ -184,7 +186,7 @@ class SessionInput(BaseModel):
 
 @app.get('/api/sessions')
 def sessions(who:User=Depends(user),store=Depends(repo)):
-    return sorted([{k:v for k,v in x.items() if k!='master'} for x in store.sessions(who.uid)],key=lambda x:x['created'],reverse=True)
+    return sorted([{k:x[k] for k in ['id','name','created','version','demo'] if k in x} for x in store.sessions(who.uid)],key=lambda x:x['created'],reverse=True)
 
 def owner_invoice_rows(store, who, folder='all'):
     folders = store.sessions(who.uid) if folder == 'all' else [get_session(store,who,folder)[0]]
@@ -193,7 +195,7 @@ def owner_invoice_rows(store, who, folder='all'):
         meta, invoices = get_session(store,who,meta['id'])
         for row in invoices:
             summary = {k:v for k,v in row.items() if k not in {'original','audit','events','lease_token'}}
-            rows.append({**summary,'folder_id':meta['id'],'folder_name':meta['name']})
+            rows.append(controls.public({**summary,'folder_id':meta['id'],'folder_name':meta['name']}))
     return rows
 
 @app.get('/api/invoices')
@@ -227,27 +229,25 @@ def create_session(body:SessionInput,who:User=Depends(user),store=Depends(repo))
 def session(sid:str,who:User=Depends(user),store=Depends(repo)):
     meta, rows = get_session(store,who,sid)
     summaries = [{k:v for k,v in row.items() if k not in {'original','audit','events','lease_token'}} for row in rows]
-    return {'session':meta,'invoices':sorted(summaries,key=lambda x:x['created'],reverse=True)}
+    return controls.public({'session':meta,'invoices':sorted(summaries,key=lambda x:x['created'],reverse=True)})
 
 @app.post('/api/sessions/{sid}/invoices')
 async def upload(sid:str,request:Request,file:UploadFile=File(...),batch:str=Form(''),local_only:bool=Form(False),who:User=Depends(user),store=Depends(repo)):
-    valid_id(sid)
-    # Stream one document per request, avoiding Cloud Run's 32 MB HTTP/1 request cap.
     raw = await file.read(10*1024*1024+1)
+
+    valid_id(sid)
+    await asyncio.to_thread(get_session,store,who,sid)
     try:
-        mime, pages = await asyncio.to_thread(inspect_file,raw)
+        mime,pages=await asyncio.to_thread(inspect_file,raw)
     except Exception as exc:
         raise HTTPException(400,str(exc)[:180]) from None
-    filename = Path((file.filename or 'invoice.pdf').replace('\\','/')).name[:160]
-    row = new_record(filename,raw,mime,pages,batch[:64])
-    # Verify ownership before persisting document bytes.
-    await asyncio.to_thread(get_session,store,who,sid)
+    filename=Path((file.filename or 'invoice.pdf').replace('\\','/')).name[:160]
+    row=new_record(filename,raw,mime,pages,batch[:64])
     await asyncio.to_thread(store.put_file,who.uid,sid,row['id'],raw,mime)
-    def insert(meta, rows):
-        limit = 15 if who.demo else 400
-        if len(rows) >= limit:
-            raise Conflict(f'This session supports {limit} invoices. Start a new session to preserve this history.')
-        rows[row['id']] = row
+    def insert(meta,rows):
+        limit=15 if who.demo else 400
+        if len(rows)>=limit:raise Conflict(f'This session supports {limit} invoices. Start a new session to preserve this history.')
+        rows[row['id']]=row
     await asyncio.to_thread(store.atomic,who.uid,sid,insert)
     try:
         await request.app.state.dispatcher.enqueue(who.uid,sid,row['id'],1,local_only)
@@ -261,7 +261,7 @@ async def upload(sid:str,request:Request,file:UploadFile=File(...),batch:str=For
 
 @app.get('/api/sessions/{sid}/invoices/{iid}')
 def invoice(sid:str,iid:str,who:User=Depends(user),store=Depends(repo)):
-    return get_row(store,who,sid,iid)[1]
+    return controls.public(get_row(store,who,sid,iid)[1])
 
 @app.get('/api/sessions/{sid}/invoices/{iid}/file')
 def source(sid:str,iid:str,who:User=Depends(user),store=Depends(repo)):
@@ -276,6 +276,32 @@ def source(sid:str,iid:str,who:User=Depends(user),store=Depends(repo)):
             out=io.BytesIO(); image.save(out,format='PNG'); raw=out.getvalue(); mime='image/png'
     return Response(raw,media_type=mime)
 
+@app.get('/api/sessions/{sid}/invoices/{iid}/preview-page')
+def preview_page(sid:str,iid:str,page:int=Query(1,ge=1),width:int=Query(1200,ge=64,le=3200),height:int=Query(1600,ge=64,le=3200),who:User=Depends(user),store=Depends(repo)):
+    get_row(store,who,sid,iid)
+    raw=store.get_file(who.uid,sid,iid)
+    from PIL import Image, ImageOps
+    if raw.startswith(b'%PDF-'):
+        import pypdfium2 as pdfium
+        with pdfium.PdfDocument(raw) as document:
+            count=len(document)
+            if page>count: raise HTTPException(404,'Page not found')
+            with closing(document[page-1]) as selected_page:
+                w,h=selected_page.get_size()
+                with closing(selected_page.render(scale=min(width/w,height/h))) as bitmap:
+                    image=bitmap.to_pil().copy()
+    else:
+        with Image.open(io.BytesIO(raw)) as source_image:
+            count=getattr(source_image,'n_frames',1)
+            if page>count: raise HTTPException(404,'Page not found')
+            source_image.seek(page-1)
+            image=ImageOps.exif_transpose(source_image).convert('RGB')
+            w,h=image.size
+            image.thumbnail((width,height))
+    out=io.BytesIO()
+    image.save(out,format='PNG'); image.close()
+    return Response(out.getvalue(),media_type='image/png',headers={'Cache-Control':'private, no-store','X-Page-Count':str(count),'X-Page-Width':str(w),'X-Page-Height':str(h)})
+
 @app.get('/api/sessions/{sid}/invoices/{iid}/original')
 def original_file(sid:str,iid:str,who:User=Depends(user),store=Depends(repo)):
     _,row=get_row(store,who,sid,iid)
@@ -284,7 +310,7 @@ def original_file(sid:str,iid:str,who:User=Depends(user),store=Depends(repo)):
 class Revision(BaseModel):
     data:Invoice
     expected_run:int = Field(ge=1)
-    confirmed_fields:list[str] = Field(default_factory=list,max_length=20)
+    confirmed_fields:list[str] = Field(default_factory=list,max_length=30)
     compared_with_source:bool = False
     po:str|None = Field(default=None,max_length=100)
 
@@ -299,17 +325,26 @@ def review(sid:str,iid:str,body:Revision,who:User=Depends(user),store=Depends(re
     def update(meta, rows):
         row = rows[iid]; editable(row,body.expected_run)
         before = copy.deepcopy(row['data'])
+        for key in BANK_FIELDS:
+            raw=(before or {}).get(key)
+            shown=masked(raw) if key=='bank_account' and raw else raw
+            if data.get(key) not in (raw,shown):
+                raise Conflict('Use Correct bank extraction to edit bank fields separately.')
+            data[key]=raw
+        data['bank_ambiguous']=(before or {}).get('bank_ambiguous',False)
         # Preserve source evidence. Client cannot forge a verification or erase uncertainty.
         data['evidence'] = copy.deepcopy((before or {}).get('evidence',{}))
         uncertain = set((before or {}).get('uncertain_fields',[]))
         for key in Invoice.model_fields:
-            if key in {'evidence','uncertain_fields'}:
+            if key in {'evidence','uncertain_fields','bank_ambiguous'}:
                 continue
             if (before or {}).get(key) != data.get(key):
                 uncertain.add(key)
         if body.confirmed_fields and not body.compared_with_source:
             raise Conflict('Confirm that you compared these fields with the source document.')
         for key in body.confirmed_fields:
+            if key in {*BANK_FIELDS,'bank_ambiguous'}:
+                continue  # General source confirmation cannot clear bank uncertainty or mismatches.
             if key not in Invoice.model_fields or key in {'evidence','uncertain_fields'} or data.get(key) in (None,'',[]):
                 raise Conflict('Only present invoice fields can be confirmed. Fill missing values first.')
             ev=data['evidence'].setdefault(key,{})
@@ -320,7 +355,7 @@ def review(sid:str,iid:str,body:Revision,who:User=Depends(user),store=Depends(re
         audit(row,'corrected_and_checked',who.username,{'before':before,'after':data,'confirmed_fields':body.confirmed_fields,'selected_po':body.po})
         decision(meta,rows,row)
         event(row,'Decision ready',message='Reviewer changes saved and all policy checks rerun.')
-        return row
+        return controls.public(row)
     return store.atomic(who.uid,sid,update)
 
 class RunInput(BaseModel):
@@ -340,6 +375,7 @@ def approve(sid:str,iid:str,body:RunInput,who:User=Depends(user),store=Depends(r
         if result['status']!='Ready for approval':
             raise Conflict('Current checks prevent approval. Refresh the invoice and resolve its findings.')
         row['allocations']=[{'po_line':m['po_line'],'qty':row['data']['lines'][m['index']]['qty']} for m in result['mappings']]
+        row['approval_controls']={'at':now(),'receipt_policy':next((p.get('require_receipts',False) for p in meta['master']['pos'] if p['number']==row['po']),False),'bank_baseline_version':meta.get('bank_accounts',{}).get(row.get('vendor_id'),{}).get('current',{}).get('version'),'bank_verification':copy.deepcopy(row.get('bank_verification'))}
         row['accepted']=True
         audit(row,'approved',who.username,{'allocations':row['allocations'],'policy':'ledger-v2'})
         event(row,'Decision ready',message='Approved by a reviewer. PO balance updated. No payment was made.')
@@ -383,6 +419,7 @@ class Vendor(BaseModel):
     aliases:list[str]=Field(default_factory=list,max_length=30)
     status:str=Field(pattern='^(approved|blocked)$')
     vendor_reference:str|None=None
+    bank_required:bool=False
 
 class POLine(BaseModel):
     model_config=ConfigDict(extra='forbid',allow_inf_nan=False)
@@ -399,6 +436,7 @@ class PO(BaseModel):
     model_config=ConfigDict(extra='forbid',allow_inf_nan=False)
     number:str=Field(min_length=1,max_length=100)
     vendor_id:str
+    require_receipts:bool=False
     status:str=Field(pattern='^(open|closed)$')
     currency:str=Field(pattern='^[A-Z]{3}$')
     date:str|None=None
@@ -428,6 +466,22 @@ def master(sid:str,body:Master,who:User=Depends(user),store=Depends(repo)):
         # Approved records consume the approved master; prohibit destructive replacement.
         if any(r['accepted'] for r in rows.values()):
             raise Conflict('This session has approvals. Start a new session before replacing its procurement master.')
+        for old in meta['master']['vendors']:
+            new=next((v for v in master['vendors'] if v['id']==old['id']),None)
+            if new and new.get('bank_required',False)!=old.get('bank_required',False):
+                raise Conflict('Change bank matching policy with an explicit reason in vendor controls.')
+        for new in master['vendors']:
+            if new.get('bank_required') and not any(v['id']==new['id'] for v in meta['master']['vendors']):
+                raise Conflict('Save the vendor first, then enable bank policy with a reason.')
+        for old in meta['master']['pos']:
+            new=next((p for p in master['pos'] if p['number']==old['number']),None)
+            if new and new.get('require_receipts',False)!=old.get('require_receipts',False):
+                raise Conflict('Change receipt matching policy with an explicit reason in PO controls.')
+            if any(r['po']==old['number'] for r in meta.get('receipts',{}).values()):
+                if not new or new['vendor_id']!=old['vendor_id'] or {l['id']:l['unit'] for l in old['lines']}!={l['id']:l['unit'] for l in new['lines']}:
+                    raise Conflict('POs with receipt history must retain vendor, stable line IDs and units.')
+        if any(p.get('require_receipts') and not any(o['number']==p['number'] for o in meta['master']['pos']) for p in master['pos']):
+            raise Conflict('Save the PO first, then enable receipt policy with a reason.')
         meta['master']=master
         meta['procurement_version']=1
         for row in rows.values():
@@ -551,13 +605,14 @@ def csv_safe(value):
 def export(sid:str,format:str='csv',who:User=Depends(user),store=Depends(repo)):
     meta,rows=get_session(store,who,sid)
     if format=='json':
-        return Response(encode({'session':meta,'invoices':rows}),media_type='application/json',headers={'Content-Disposition':'attachment; filename="ledger-audit.json"'})
+        return Response(encode(controls.public({'session':meta,'invoices':rows})),media_type='application/json',headers={'Content-Disposition':'attachment; filename="ledger-audit.json"'})
+    rows=controls.public(rows)
     out=io.StringIO(); writer=csv.writer(out)
-    writer.writerow(['File','Invoice number','Vendor','Date','Currency','Total','Status','PO','Reader','Updated'])
+    writer.writerow(['File','Invoice number','Vendor','Date','Currency','Total','Status','PO','Reader','Updated','Receipt findings','Bank findings','Invoice account (masked)'])
     for row in rows:
         d=row.get('data') or {}
         status='Approved' if row['accepted'] else (row.get('result') or {}).get('status',row['execution'])
-        writer.writerow([csv_safe(v) for v in [row['filename'],d.get('invoice_no'),d.get('vendor'),d.get('date'),d.get('currency'),d.get('total'),status,row.get('po'),row.get('extraction',{}).get('source'),row['updated']]])
+        writer.writerow([csv_safe(v) for v in [row['filename'],d.get('invoice_no'),d.get('vendor'),d.get('date'),d.get('currency'),d.get('total'),status,row.get('po'),row.get('extraction',{}).get('source'),row['updated'], ' '.join(x['message'] for x in (row.get('result') or {}).get('checks',[]) if x['code'].startswith('receipt')), ' '.join(x['message'] for x in (row.get('result') or {}).get('checks',[]) if x['code'].startswith('bank')),d.get('bank_account') or 'Not provided']])
     return Response('\ufeff'+out.getvalue(),media_type='text/csv',headers={'Content-Disposition':'attachment; filename="ledger-invoices.csv"'})
 
 class TaskInput(BaseModel):
@@ -575,6 +630,9 @@ async def worker(body:TaskInput,store=Depends(repo)):
         # Non-2xx lets Cloud Tasks redeliver if another worker's lease expires.
         raise HTTPException(503,'Processing lease is active. Retry later.')
     return {'ok':True}
+
+controls.install(app,repo,user,valid_id,editable)
+
 
 app.mount('/static',StaticFiles(directory=ROOT/'web'),name='static')
 @app.get('/')

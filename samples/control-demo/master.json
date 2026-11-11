@@ -1,0 +1,35 @@
+{
+  "vendors": [
+    {
+      "id": "fictional-harbour",
+      "name": "Fictional Harbour Goods",
+      "gstin": "",
+      "aliases": [],
+      "status": "approved"
+    }
+  ],
+  "pos": [
+    {
+      "number": "PO-FICTION-100",
+      "vendor_id": "fictional-harbour",
+      "status": "open",
+      "currency": "INR",
+      "date": null,
+      "tax_basis": "exclusive",
+      "tax_rate": "18",
+      "total": "11800",
+      "lines": [
+        {
+          "id": "fictional-chair-line",
+          "item": "Fictional chair",
+          "aliases": [],
+          "qty": "100",
+          "price": "100",
+          "tax_basis": "exclusive",
+          "tax_rate": "18",
+          "unit": "each"
+        }
+      ]
+    }
+  ]
+}

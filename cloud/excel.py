@@ -63,7 +63,7 @@ def workbook(rows, group='none'):
     book = Workbook()
     sheet = book.active
     sheet.title = 'Invoices'
-    headers = ['Folder','File','Invoice number','Vendor','Invoice date','Currency','Amount','Outcome','Purchase order','Reader','Updated']
+    headers = ['Folder','File','Invoice number','Vendor','Invoice date','Currency','Amount','Outcome','Purchase order','Reader','Updated','Receipt findings','Bank findings','Invoice account (masked)']
     if group != 'none':
         headers.insert(0, 'Group')
         rows = sorted(rows, key=lambda row:group_key(row, group))
@@ -78,7 +78,10 @@ def workbook(rows, group='none'):
             amount = None
         values = [row.get('folder_name'),row.get('filename'),data.get('invoice_no'),data.get('vendor'),
                   data.get('date'),data.get('currency'),amount,invoice_status(row),row.get('po'),
-                  (row.get('extraction') or {}).get('source'),row.get('updated')]
+                  (row.get('extraction') or {}).get('source'),row.get('updated'),
+                  ' '.join(c['message'] for c in (row.get('result') or {}).get('checks',[]) if c['code'].startswith('receipt')),
+                  ' '.join(c['message'] for c in (row.get('result') or {}).get('checks',[]) if c['code'].startswith('bank')),
+                  data.get('bank_account') or 'Not provided']
         if group != 'none':
             values.insert(0, group_key(row, group))
         # Store all supplied strings as literal text, including '=...', not Excel formulae.

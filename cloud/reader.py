@@ -97,6 +97,9 @@ def amount(value):
 def parse_pages(pages):
     data = {}; evidence = {}; lines = []; trace = []
     patterns = {
+        'bank_beneficiary':r'^\s*(?:Beneficiary(?: name)?|Account holder)\s*:\s*([^\n|]+)',
+        'bank_account':r'^\s*(?:Bank account(?: number| no\.?)?|Account(?: number| no\.?)?|A/c(?: no\.?)?)\s*:\s*([^\n|]+)',
+        'bank_ifsc':r'\bIFSC(?: code)?\s*:\s*([A-Z0-9 ?*-]+)',
         'vendor': r'^\s*(?:Vendor|Supplier|Seller|From)\s*:\s*([^|\n]+)',
         'gstin': r'\bGSTIN\s*[:#-]?\s*([A-Z0-9]{15})\b',
         'vendor_reference': r'Vendor reference\s*:\s*([^|\n]+)',
@@ -171,6 +174,9 @@ def parse_pages(pages):
             except ValueError:
                 continue
         data['date'] = parsed
+    bank_fields=['bank_beneficiary','bank_account','bank_ifsc']
+    if any(k in conflicts for k in bank_fields) or (data.get('bank_account') and not re.fullmatch(r'[0-9\s-]{6,100}',data['bank_account'])):
+        data['bank_ambiguous']=True
     data['lines'] = lines
     data['evidence'] = evidence
     # Full fallback confirmation includes line items, unlike scalar-only verification.
@@ -213,7 +219,7 @@ async def gemini(raw, mime):
                     raise ValueError('Gemini output was incomplete')
                 text = ''.join(p.get('text','') for p in candidate.get('content',{}).get('parts',[]) if not p.get('thought'))
                 inv = Invoice.model_validate_json(text)
-                for field in ['vendor','invoice_no','date','currency','total','lines','subtotal','tax','tax_rate','tax_basis','gstin','po_ref']:
+                for field in ['vendor','invoice_no','date','currency','total','lines','subtotal','tax','tax_rate','tax_basis','gstin','po_ref','bank_beneficiary','bank_account','bank_ifsc']:
                     if getattr(inv,field) is None or getattr(inv,field) == []:
                         continue
                     ev = inv.evidence.get(field, {})

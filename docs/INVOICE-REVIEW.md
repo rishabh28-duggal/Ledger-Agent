@@ -1,0 +1,30 @@
+# Compact invoice review workspace
+
+Invoice review now uses a persistent header and a document/review workspace. The document opens at full column width and grows vertically with the selected page. The review content uses ordinary page scrolling rather than short nested panels. Tabs remain sticky within the review panel. Narrow widths stack the panels. Dashboard/queue layouts and all server policies are unchanged.
+
+Issues, Invoice details and Activity use real tab semantics and Arrow/Home/End keyboard navigation. The same mounted form remains present while switching tabs. Findings retain every server check and group them by prerequisite, identity/PO, amounts/lines, receipts, bank details, waiting and passed. Counts include only actual unresolved outcomes; informational and passed findings are not failures. Passed groups start collapsed. Missing extraction is explained as a source-review task, without asserting that the document omitted the value. Issue actions focus relevant fields, PO selection, lines and bank controls. Receipts can be recorded through the existing independent receipt dialog; history remains in procurement management.
+
+The details tab keeps invoice fields, amounts/tax, editable multiline line descriptions, PO selection and explicit source confirmation. Editing invalidates the source checkbox; switching tabs does not. Evidence is available through Source disclosures rather than permanent quotations. The bottom action area separates Save & rerun from Approve and explains why approval is unavailable. Unsaved or stale edits disable approval. Bank source correction and external verification remain separate and retain their existing masking and server safeguards.
+
+Activity contains factual reader/fallback information, processing stages, immutable approval/audit history, original extraction and saved-record JSON export. Vendor follow-up opens an editable copy-only dialog, excludes extraction-null/uncertain prerequisites from its business draft, and never sends messages. PDF and image previews use the existing PDFium/Pillow libraries through an authenticated selected-page endpoint. Page and bitmap handles are explicitly closed. Previous/Next exposes all pages; Fit width is the default, with deliberate zoom and Fit page available. Rendering preserves aspect ratio and requests device-pixel-aware resolution, capped at 3200 pixels per dimension. Open original and Download remain available. Raster previews do not offer native PDF text selection or search. Expand uses a separate dialog without replacing the form.
+
+In-app navigation with edits offers Stay, Discard changes and leave, or Save and leave. A failed save retains the input and leaves the user in review. Browser unload uses its native unsaved-change warning. Queue search, status, grouping, page and outer scroll survive returning from a review. Background polling never replaces the review form: it signals updated results and requires an explicit reload. Reload with a draft uses the same leave/save/discard decision. A stale server revision stays protected by the existing expected-run check. Full browser-level navigation and filesystem download handling still depend on the browser.
+
+## Checks
+
+- python -m pytest tests/test_review_preview.py -q (PDF page rendering, bounds, aspect ratio, image orientations and ownership isolation)
+- node --check web/app.js
+- node tests/ui-render.cjs
+- node tests/review-ui.cjs (actual grouping, tab/draft, source-confirmation, save-failure, unsaved-navigation, approval guards and queue-context handlers in a stateful DOM harness; this is not browser visual verification)
+- python -m pytest -q: 70 passed; existing test_scan_ocr fails because native Tesseract is missing on this Windows host.
+- The preview endpoint adds read-only rendering; extraction policies, approval transactions, secrets and deployment files were not changed for this review redesign. The earlier receipt/bank implementation remains pending locally.
+
+A disposable local UI preview on port 8087 contains fictional clean, missing-data, many-line, duplicate, multipage, image and approved scenarios. It overrides authentication only inside its temporary test process with a fictional owner and isolated temporary SQLite data; no real account or stored invoice data is used or modified. This test harness is outside the repository and is not deployment code.
+
+Browser visual verification results are reported separately in the implementation response. No live cloud or paid Gemini verification is claimed. The user subsequently approved publishing the retained changes after removal of the optional in-app walkthrough.
+
+## Actual browser inspection
+
+Native Chrome screenshots inspected clean, missing-data, 40-line-finding, blocked duplicate, multipage PDF, scanned image and approved examples. Verified bounded desktop panels, light/dark appearance, typed draft preservation across tabs, unsaved navigation choices, line-item action/focus, real image zoom, expanded PDF viewer and browser-native page controls. Responsive device UI was inspected at 390px and 768px, including mobile sticky header/tabs and details fields in both themes. A 150% browser zoom check confirmed normal stacked flow. Arrow and End/Home tab navigation showed the expected selected tab and visible focus. The preview was restored to desktop at 100% zoom. Screenshots were shown in the conversation.
+
+Remaining verification limits: no full screen-reader audit, real mobile device/browser matrix, or live cloud/Gemini checks. Complete browser save-error/download recovery paths were not fault-injected; stateful handler tests and existing API regressions cover these boundaries. The preview consists solely of fictional disposable data.

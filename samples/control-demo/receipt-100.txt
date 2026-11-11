@@ -1,0 +1,12 @@
+FICTIONAL TEST INVOICE - NOT FOR PAYMENT
+Vendor: Fictional Harbour Goods
+Invoice number: FICTION-RECEIPT-100
+Date: 2026-11-10
+PO: PO-FICTION-100
+Currency: INR
+Tax basis: exclusive
+Tax rate: 18
+Item: Fictional chair | 100 | 100 | 10000 | each
+Subtotal: 10000
+Tax: 1800
+Grand total: 11800

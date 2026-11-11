@@ -27,6 +27,10 @@ class Invoice(BaseModel):
     tax_rate: Decimal | None = None
     total: Decimal | None = None
     tax_basis: str | None = None
+    bank_beneficiary: str | None = Field(default=None,max_length=150)
+    bank_account: str | None = Field(default=None,max_length=100)
+    bank_ifsc: str | None = Field(default=None,max_length=30)
+    bank_ambiguous: bool = False
     lines: list[Line] = Field(default_factory=list)
     evidence: dict = Field(default_factory=dict)
     uncertain_fields: list[str] = Field(default_factory=list)
@@ -39,7 +43,7 @@ def serial(x):
     import json
     return json.loads(__import__('json').dumps(x, default=str))
 
-def evaluate(inv: Invoice, vendors, pos, history, current_id, file_hash, selected_po=None, today=None, duplicate_history=None):
+def evaluate(inv: Invoice, vendors, pos, history, current_id, file_hash, selected_po=None, today=None, duplicate_history=None, receipts=None, bank_accounts=None, bank_verification=None):
     today = today or date.today()
     from .guidance import fix_for
     checks=[]
@@ -143,6 +147,8 @@ def evaluate(inv: Invoice, vendors, pos, history, current_id, file_hash, selecte
             expected=dec(p['price'])/(1+dec(p['tax_rate'])/100) if p['tax_basis']=='inclusive' else dec(p['price'])
             variance=abs(actual-expected)/expected if expected else Decimal(1)
             add('price_'+str(i),'pass' if variance<=Decimal('.02') else 'review','Unit-price comparison: '+('within policy.' if variance<=Decimal('.02') else 'high-severity dispute.' if variance>Decimal('.05') else 'minor variance.'),expected=expected,observed=actual,variance_percent=variance*100)
+    from .controls import extra_checks
+    checks.extend(extra_checks(inv,vendor,po,mappings,history,current_id,receipts or {},(bank_accounts or {}).get(vendor['id'],{}).get('current',{}) if vendor else {},bank_verification))
     status='Blocked' if any(c['level']=='block' for c in checks) else 'Needs review' if any(c['level'] in ['review','not_evaluated'] for c in checks) else 'Ready for approval'
     issues=[c['message'] for c in checks if c['level'] in ['review','block','not_evaluated']]
     email=('Subject: Clarification required — invoice '+(inv.invoice_no or '(number missing)')+'\n\nHello,\nPlease help resolve the following before we can complete invoice review:\n'+ '\n'.join('- '+c['message']+' Next action: '+c['fix'] for c in checks if c['level'] in ['review','block','not_evaluated'])+'\n\nThank you,\nAccounts Payable') if issues else None
