@@ -15,7 +15,7 @@ from pathlib import Path
 from fastapi import FastAPI, Depends, Request, UploadFile, File, Form, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, ValidationError
 from app.domain import Invoice
 from .repository import ROOT, repository, now, encode, procurement_master
 from .reader import inspect_file
@@ -277,7 +277,7 @@ def source(sid:str,iid:str,who:User=Depends(user),store=Depends(repo)):
     return Response(raw,media_type=mime)
 
 @app.get('/api/sessions/{sid}/invoices/{iid}/preview-page')
-def preview_page(sid:str,iid:str,page:int=Query(1,ge=1),width:int=Query(1200,ge=64,le=3200),height:int=Query(1600,ge=64,le=3200),who:User=Depends(user),store=Depends(repo)):
+def preview_page(sid:str,iid:str,page:int=Query(1,ge=1),width:int=Query(1200,ge=64,le=3200),height:int=Query(1600,ge=64,le=8192),who:User=Depends(user),store=Depends(repo)):
     get_row(store,who,sid,iid)
     raw=store.get_file(who.uid,sid,iid)
     from PIL import Image, ImageOps
@@ -288,7 +288,7 @@ def preview_page(sid:str,iid:str,page:int=Query(1,ge=1),width:int=Query(1200,ge=
             if page>count: raise HTTPException(404,'Page not found')
             with closing(document[page-1]) as selected_page:
                 w,h=selected_page.get_size()
-                with closing(selected_page.render(scale=min(width/w,height/h))) as bitmap:
+                with closing(selected_page.render(scale=min(width/w,height/h,(12_000_000/(w*h))**.5))) as bitmap:
                     image=bitmap.to_pil().copy()
     else:
         with Image.open(io.BytesIO(raw)) as source_image:
@@ -450,9 +450,7 @@ class Master(BaseModel):
     vendors:list[Vendor]=Field(max_length=100)
     pos:list[PO]=Field(max_length=100)
 
-@app.put('/api/sessions/{sid}/master')
-def master(sid:str,body:Master,who:User=Depends(user),store=Depends(repo)):
-    valid_id(sid)
+def validate_master(body:Master):
     master=body.model_dump(mode='json')
     vids=[v.id for v in body.vendors]; pids=[p.number for p in body.pos]
     lids=[l.id for p in body.pos for l in p.lines]
@@ -462,33 +460,105 @@ def master(sid:str,body:Master,who:User=Depends(user),store=Depends(repo)):
         raise HTTPException(400,'Every PO must reference a vendor in this master.')
     if len(encode(master).encode())>400_000:
         raise HTTPException(400,'Master data is too large for a session.')
+    return master
+
+def apply_master(meta,rows,master,who):
+    # Approved records consume the approved master; prohibit destructive replacement.
+    if any(r['accepted'] for r in rows.values()):
+        raise Conflict('This session has approvals. Start a new session before replacing its procurement master.')
+    for old in meta['master']['vendors']:
+        new=next((v for v in master['vendors'] if v['id']==old['id']),None)
+        if new and new.get('bank_required',False)!=old.get('bank_required',False):
+            raise Conflict('Change bank matching policy with an explicit reason in vendor controls.')
+    for new in master['vendors']:
+        if new.get('bank_required') and not any(v['id']==new['id'] for v in meta['master']['vendors']):
+            raise Conflict('Save the vendor first, then enable bank policy with a reason.')
+    for old in meta['master']['pos']:
+        new=next((p for p in master['pos'] if p['number']==old['number']),None)
+        if new and new.get('require_receipts',False)!=old.get('require_receipts',False):
+            raise Conflict('Change receipt matching policy with an explicit reason in PO controls.')
+        if any(r['po']==old['number'] for r in meta.get('receipts',{}).values()):
+            if not new or new['vendor_id']!=old['vendor_id'] or {l['id']:l['unit'] for l in old['lines']}!={l['id']:l['unit'] for l in new['lines']}:
+                raise Conflict('POs with receipt history must retain vendor, stable line IDs and units.')
+    if any(p.get('require_receipts') and not any(o['number']==p['number'] for o in meta['master']['pos']) for p in master['pos']):
+        raise Conflict('Save the PO first, then enable receipt policy with a reason.')
+    meta['master']=master
+    meta['procurement_version']=1
+    for row in rows.values():
+        if row.get('data') and row['execution']=='completed':
+            decision(meta,rows,row)
+            audit(row,'master_updated',who.username)
+    return {'ok':True}
+
+@app.put('/api/sessions/{sid}/master')
+def master(sid:str,body:Master,who:User=Depends(user),store=Depends(repo)):
+    valid_id(sid)
+    value=validate_master(body)
+    return store.atomic(who.uid,sid,lambda meta,rows:apply_master(meta,rows,value,who))
+
+class ProcurementResolution(BaseModel):
+    model_config=ConfigDict(extra='forbid')
+    operation:str=Field(pattern='^(vendor_create|vendor_link|po_create|po_link)$')
+    expected_run:int=Field(ge=1)
+    verified:bool=False
+    reason:str=Field(min_length=5,max_length=500)
+    vendor:Vendor|None=None
+    po:PO|None=None
+    existing_vendor:str|None=Field(default=None,max_length=80)
+    existing_po:str|None=Field(default=None,max_length=100)
+
+@app.post('/api/sessions/{sid}/invoices/{iid}/procurement')
+def resolve_procurement(sid:str,iid:str,body:ProcurementResolution,who:User=Depends(user),store=Depends(repo)):
+    valid_id(sid);valid_id(iid)
+    from app.domain import norm,name_norm
+    from difflib import SequenceMatcher
     def update(meta,rows):
-        # Approved records consume the approved master; prohibit destructive replacement.
-        if any(r['accepted'] for r in rows.values()):
-            raise Conflict('This session has approvals. Start a new session before replacing its procurement master.')
-        for old in meta['master']['vendors']:
-            new=next((v for v in master['vendors'] if v['id']==old['id']),None)
-            if new and new.get('bank_required',False)!=old.get('bank_required',False):
-                raise Conflict('Change bank matching policy with an explicit reason in vendor controls.')
-        for new in master['vendors']:
-            if new.get('bank_required') and not any(v['id']==new['id'] for v in meta['master']['vendors']):
-                raise Conflict('Save the vendor first, then enable bank policy with a reason.')
-        for old in meta['master']['pos']:
-            new=next((p for p in master['pos'] if p['number']==old['number']),None)
-            if new and new.get('require_receipts',False)!=old.get('require_receipts',False):
-                raise Conflict('Change receipt matching policy with an explicit reason in PO controls.')
-            if any(r['po']==old['number'] for r in meta.get('receipts',{}).values()):
-                if not new or new['vendor_id']!=old['vendor_id'] or {l['id']:l['unit'] for l in old['lines']}!={l['id']:l['unit'] for l in new['lines']}:
-                    raise Conflict('POs with receipt history must retain vendor, stable line IDs and units.')
-        if any(p.get('require_receipts') and not any(o['number']==p['number'] for o in meta['master']['pos']) for p in master['pos']):
-            raise Conflict('Save the PO first, then enable receipt policy with a reason.')
-        meta['master']=master
-        meta['procurement_version']=1
-        for row in rows.values():
-            if row.get('data') and row['execution']=='completed':
-                decision(meta,rows,row)
-                audit(row,'master_updated',who.username)
-        return {'ok':True}
+        row=rows[iid];editable(row,body.expected_run)
+        if not row.get('data'):raise Conflict('Wait for invoice extraction before resolving references.')
+        if len(body.reason.strip())<5:raise Conflict('Provide a verification or authorisation reference.')
+        proposed=copy.deepcopy(meta['master']);changed=False;linked_vendor=None;linked_po=None
+        if body.operation.startswith('vendor_'):
+            if not body.verified:raise Conflict('Explicitly confirm independent verification and authority to approve this vendor.')
+            if body.operation=='vendor_create':
+                if not body.vendor or body.vendor.status!='approved':raise Conflict('Enter the verified vendor information.')
+                value=body.vendor.model_dump(mode='json')
+                if not value['name'].strip():raise Conflict('Enter the verified vendor name.')
+                candidates=[v for v in proposed['vendors'] if (value['gstin'] and norm(value['gstin'])==norm(v['gstin'])) or any(SequenceMatcher(None,name_norm(value['name']),name_norm(name)).ratio()>=.78 for name in [v['name'],*v['aliases']])]
+                if candidates:raise Conflict('An existing vendor has a matching GSTIN or similar identity. Select and link the existing vendor instead: '+', '.join(v['name'] for v in candidates))
+                proposed['vendors'].append(value);changed=True
+            else:
+                value=next((v for v in proposed['vendors'] if v['id']==body.existing_vendor),None)
+                if not value:raise Conflict('Select an existing vendor in this folder.')
+                if value['status']!='approved':raise Conflict('This vendor is blocked. Review the vendor policy in Vendors & POs; it cannot be approved here.')
+            linked_vendor=value['id']
+            observed=(row['data'].get('vendor') or '').strip()
+            if observed and name_norm(observed) not in [name_norm(value['name']),*[name_norm(x) for x in value['aliases']]]:
+                value['aliases'].append(observed);changed=True
+        else:
+            if not row.get('vendor_id'):raise Conflict('Resolve the invoice vendor before selecting or adding its PO.')
+            if body.operation=='po_create':
+                if not body.verified:raise Conflict('Confirm the actual purchasing authorisation, quantities and budget.')
+                if not body.po:raise Conflict('Enter the authorised purchase order.')
+                value=body.po.model_dump(mode='json')
+                if not value['number'].strip() or any(norm(p['number'])==norm(value['number']) for p in proposed['pos']):raise Conflict('This PO reference already exists or is empty. Select the existing PO instead.')
+                proposed['pos'].append(value);changed=True
+            else:
+                value=next((p for p in proposed['pos'] if p['number']==body.existing_po),None)
+                if not value:raise Conflict('Select an existing PO in this folder.')
+            if value['vendor_id']!=row['vendor_id'] or value['status']!='open':raise Conflict('Select an open PO belonging to the matched invoice vendor.')
+            linked_po=value['number']
+        if changed:
+            try: validated=Master.model_validate(proposed)
+            except ValidationError as exc:raise HTTPException(400,'Reference values exceed supported field, alias or record limits.') from exc
+            apply_master(meta,rows,validate_master(validated),who)
+        if linked_po:row['selected_po']=linked_po
+        row['run']+=1
+        decision(meta,rows,row)
+        action={'vendor_create':'vendor_approved','vendor_link':'vendor_linked','po_create':'po_created_and_linked','po_link':'po_linked'}[body.operation]
+        details={'reason':body.reason.strip(),'verified':body.verified,'vendor':linked_vendor,'po':linked_po,'reference':copy.deepcopy(value),'result':row['result']['status'],'checks':[{'code':x['code'],'level':x['level']} for x in row['result']['checks']]}
+        audit(row,action,who.username,details);controls.log(meta,action,who.username,{'invoice':iid,**details})
+        event(row,'Decision ready',message='Procurement reference updated; all checks rerun. Invoice approval remains separate.')
+        return controls.public({'invoice':row,'session':meta})
     return store.atomic(who.uid,sid,update)
 
 @app.get('/api/master-template')

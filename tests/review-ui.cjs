@@ -50,6 +50,18 @@ const approvalHandler=$('#approve').onclick,pendingApproval=approvalHandler({tar
 assert.equal(approveCalls,1);assert.equal($('#approve').disabled,true);assert.equal($('#approve').textContent,'Approving...');
 rejectApproval(Error('Approval changed'));await pendingApproval;assert.equal(reviewContext.approving,false);assert.equal(reviewContext.stale,true);
 reviewContext.dirty=false;reviewContext.row.accepted=true;updateReviewActions();assert.equal($('#approve').disabled,true);assert.equal($('#review-save').disabled,true);
+// Reference dialogs are local and cancellable; they cannot create records on open.
+reviewContext.row={...fixture,accepted:false,run:1};reviewContext.dirty=true;reviewContext.dataDirty=true;reviewContext.stale=false;
+let referenceRequests=0;json=async()=>{referenceRequests++;throw Error('Unexpected write');};
+vendorForm(-1,true);$('#cancel-vendor').onclick();assert.equal(referenceRequests,0);assert.equal(reviewContext.dirty,true);
+poForm(-1,true);$('#cancel-po').onclick();assert.equal(referenceRequests,0);assert.equal(formRef.elements.total.value,'150');
+// A successful persisted recheck updates only references/findings, preserving edits and source state.
+reviewContext.sourceView={page:2,zoom:150,fitPage:false,scrollTop:70,scrollLeft:5};switchReviewTab('details');
+const previewBefore=$('#source-preview').innerHTML,sourceState=JSON.stringify(reviewContext.sourceView);
+json=async()=>({invoice:{...fixture,accepted:false,run:2,selected_po:'PO-NEW'},session:{...snapshot.session}});
+assert.equal(await submitReviewReference({operation:'po_link',existing_po:'PO-NEW',reason:'Verified authorisation'}),true);
+assert.equal(reviewContext.row.run,2);assert.equal(formRef.elements.total.value,'150');assert.equal(reviewContext.dirty,true);assert.equal(reviewContext.tab,'details');
+assert.equal($('#source-preview').innerHTML,previewBefore);assert.equal(JSON.stringify(reviewContext.sourceView),sourceState);assert.equal($('#approve').disabled,true);
 // Returning to the queue retains existing criteria, page and outer scroll.
 search='Vendor';statusFilter='Blocked';queuePage=2;queueGroup='vendor';queueScroll=250;
 snapshot.invoices=Array.from({length:60},(_,i)=>({...fixture,id:String(i),filename:'Vendor.pdf',data:{vendor:'Vendor'},result:{status:'Blocked'}}));
@@ -57,5 +69,5 @@ reviewContext.dirty=false;location.hash='#queue';await route({skipGuard:true});a
 // Dashboard return restores its own scroll without replacing queue state.
 page='detail';overviewRows=[];overviewScroll=410;location.hash='#dashboard';await route({skipGuard:true});assert.equal(window.lastScroll.top,410);assert.equal(queuePage,2);
 json=originalJson;api=originalApi;
-})()`,{document,window,location,history,assert,console,Blob,URL,structuredClone,setTimeout,clearTimeout,requestAnimationFrame:fn=>fn(),sessionStorage:{setItem(){}}});
+})()`,{document,window,location,history,assert,console,Blob,URL,structuredClone,crypto:require('node:crypto').webcrypto,setTimeout,clearTimeout,requestAnimationFrame:fn=>fn(),sessionStorage:{setItem(){}}});
 Promise.resolve(result).then(()=>console.log('Review grouping, tabs, drafts, save failure, approval guards and queue-context checks passed')).catch(error=>{console.error(error);process.exitCode=1;});
