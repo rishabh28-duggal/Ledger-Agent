@@ -62,6 +62,12 @@ json=async()=>({invoice:{...fixture,accepted:false,run:2,selected_po:'PO-NEW'},s
 assert.equal(await submitReviewReference({operation:'po_link',existing_po:'PO-NEW',reason:'Verified authorisation'}),true);
 assert.equal(reviewContext.row.run,2);assert.equal(formRef.elements.total.value,'150');assert.equal(reviewContext.dirty,true);assert.equal(reviewContext.tab,'details');
 assert.equal($('#source-preview').innerHTML,previewBefore);assert.equal(JSON.stringify(reviewContext.sourceView),sourceState);assert.equal($('#approve').disabled,true);
+// Save uses the same in-place renderer as live updates, rather than remounting the source.
+const realDetailRenderer=renderDetail;let actionRefresh;
+renderDetail=async(row,background)=>{actionRefresh=background;};
+json=async()=>({...fixture,run:3});reviewContext.row={...fixture,run:2};reviewContext.dirty=true;reviewContext.dataDirty=true;
+assert.equal(await saveReview(),true);assert.equal(actionRefresh,true);assert.equal(reviewContext.row.run,3);
+renderDetail=realDetailRenderer;
 // Returning to the queue retains existing criteria, page and outer scroll.
 search='Vendor';statusFilter='Blocked';queuePage=2;queueGroup='vendor';queueScroll=250;
 snapshot.invoices=Array.from({length:60},(_,i)=>({...fixture,id:String(i),filename:'Vendor.pdf',data:{vendor:'Vendor'},result:{status:'Blocked'}}));
