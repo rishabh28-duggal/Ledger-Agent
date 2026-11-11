@@ -68,6 +68,15 @@ renderDetail=async(row,background)=>{actionRefresh=background;};
 json=async()=>({...fixture,run:3});reviewContext.row={...fixture,run:2};reviewContext.dirty=true;reviewContext.dataDirty=true;
 assert.equal(await saveReview(),true);assert.equal(actionRefresh,true);assert.equal(reviewContext.row.run,3);
 renderDetail=realDetailRenderer;
+// Mistaken selections are removable before upload; upload-in-progress is immutable.
+files=[{name:'wrong.pdf',size:100},{name:'right.pdf',size:200}];uploadResults=[];
+removeSelectedFile(0);assert.equal(files.length,1);assert.equal(files[0].name,'right.pdf');assert.equal($('#start-upload').disabled,false);
+uploading=true;removeSelectedFile(0);assert.equal(files.length,1);uploading=false;
+removeSelectedFile(0);assert.equal(files.length,0);assert.equal($('#start-upload').disabled,true);
+// Opening or cancelling deletion cannot write records or discard a draft.
+let deletionWrites=0;json=async()=>{deletionWrites++;throw Error('Unexpected deletion');};
+reviewContext.dirty=true;reviewContext.row.accepted=false;
+await deleteSavedInvoice();assert.equal(deletionWrites,0);document.lastDialog.querySelector('#delete-cancel').onclick();assert.equal(deletionWrites,0);assert.equal(reviewContext.dirty,true);
 // Returning to the queue retains existing criteria, page and outer scroll.
 search='Vendor';statusFilter='Blocked';queuePage=2;queueGroup='vendor';queueScroll=250;
 snapshot.invoices=Array.from({length:60},(_,i)=>({...fixture,id:String(i),filename:'Vendor.pdf',data:{vendor:'Vendor'},result:{status:'Blocked'}}));

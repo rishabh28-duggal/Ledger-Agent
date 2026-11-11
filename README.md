@@ -7,6 +7,7 @@ Invoice review with a clear path from document to decision. This version replace
 - **Run locally:** `python app.py` after installing `requirements.txt` and Tesseract, or use Docker below.
 - **Deploy to Google Cloud:** follow [docs/DEPLOY.md](docs/DEPLOY.md).
 - **Rehearse the case-study demo:** follow [docs/DEMO.md](docs/DEMO.md).
+- **Remove mistaken uploads or folders:** see [docs/DELETION.md](docs/DELETION.md).
 - **Understand the fallback:** read [docs/FALLBACK_RULES.md](docs/FALLBACK_RULES.md).
 - **See what was tested:** read [docs/VALIDATION.md](docs/VALIDATION.md).
 

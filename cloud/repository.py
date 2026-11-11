@@ -51,7 +51,7 @@ class LocalRepository:
 
     def sessions(self, uid):
         with self.connect() as db:
-            return [json.loads(x[0]) for x in db.execute('SELECT data FROM sessions WHERE uid=? ORDER BY sid', (uid,))]
+            return [m for x in db.execute('SELECT data FROM sessions WHERE uid=? ORDER BY sid', (uid,)) if not (m:=json.loads(x[0])).get('deleted')]
 
     def create(self, uid, name, demo=False):
         meta = initial(name, demo)
@@ -66,7 +66,9 @@ class LocalRepository:
             if not meta:
                 raise KeyError('Session not found')
             rows = [json.loads(r[0]) for r in db.execute('SELECT data FROM invoices WHERE uid=? AND sid=?', (uid, sid))]
-            return json.loads(meta[0]), rows
+            meta=json.loads(meta[0])
+            if meta.get('deleted'): raise KeyError('Session not found')
+            return meta, [r for r in rows if not r.get('deleted')]
 
     def atomic(self, uid, sid, callback):
         with self.connect() as db:
@@ -75,7 +77,9 @@ class LocalRepository:
             if not raw:
                 raise KeyError('Session not found')
             meta = json.loads(raw[0])
+            if meta.get('deleted'): raise KeyError('Session not found')
             rows = {r[0]: json.loads(r[1]) for r in db.execute('SELECT id,data FROM invoices WHERE uid=? AND sid=?', (uid, sid))}
+            rows = {k:r for k,r in rows.items() if not r.get('deleted')}
             before = copy.deepcopy(rows)
             result = callback(meta, rows)
             meta['version'] += 1
@@ -104,7 +108,7 @@ class CloudRepository:
         return self.db.collection('users').document(uid).collection('sessions').document(sid)
 
     def sessions(self, uid):
-        return [d.to_dict() for d in self.db.collection('users').document(uid).collection('sessions').stream()]
+        return [m for d in self.db.collection('users').document(uid).collection('sessions').stream() if not (m:=d.to_dict()).get('deleted')]
 
     def create(self, uid, name, demo=False):
         meta = initial(name, demo)
@@ -119,7 +123,9 @@ class CloudRepository:
             snap = ref.get(transaction=tx)
             if not snap.exists:
                 raise KeyError('Session not found')
-            return snap.to_dict(), [x.to_dict() for x in ref.collection('invoices').stream(transaction=tx)]
+            meta=snap.to_dict()
+            if meta.get('deleted'): raise KeyError('Session not found')
+            return meta, [r for x in ref.collection('invoices').stream(transaction=tx) if not (r:=x.to_dict()).get('deleted')]
         return read(self.db.transaction())
 
     def atomic(self, uid, sid, callback):
@@ -130,7 +136,9 @@ class CloudRepository:
             if not snap.exists:
                 raise KeyError('Session not found')
             meta = snap.to_dict()
+            if meta.get('deleted'): raise KeyError('Session not found')
             rows = {d.id: d.to_dict() for d in ref.collection('invoices').stream(transaction=tx)}
+            rows = {k:r for k,r in rows.items() if not r.get('deleted')}
             before = copy.deepcopy(rows)
             result = callback(meta, rows)
             meta['version'] += 1

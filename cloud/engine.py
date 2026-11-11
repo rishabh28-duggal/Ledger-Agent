@@ -66,7 +66,8 @@ async def process(repo, uid, sid, iid, run, local_only=False):
             data = Invoice().model_dump(mode='json')
             extraction = {'source':'Manual review','fallback':True,'note':'Extraction exceeded the safe record size. Review the original and enter a concise set of fields.','pages':[]}
         def finish(meta, rows):
-            current = rows[iid]
+            current = rows.get(iid)
+            if current is None: return
             if current['run'] != run or current.get('lease_token') != token:
                 return
             current.update(data=data, original=data, extraction=extraction, execution='completed', lease_until=0)
@@ -83,7 +84,8 @@ async def process(repo, uid, sid, iid, run, local_only=False):
         await asyncio.to_thread(repo.atomic,uid,sid,finish)
     except Exception:
         def failed(meta, rows):
-            current = rows[iid]
+            current = rows.get(iid)
+            if current is None: return
             if current['run'] == run and current.get('lease_token') == token:
                 current.update(execution='failed',lease_until=0,error='Processing was interrupted. Retry this invoice; the original file is saved.')
                 event(current,'Reading document','failed',current['error'])

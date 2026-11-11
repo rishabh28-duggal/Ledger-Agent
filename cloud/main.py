@@ -259,6 +259,42 @@ async def upload(sid:str,request:Request,file:UploadFile=File(...),batch:str=For
         await asyncio.to_thread(store.atomic,who.uid,sid,failed)
     return {'id':row['id']}
 
+class DeleteFolderInput(BaseModel):
+    expected_version:int
+
+class DeleteInvoiceInput(BaseModel):
+    expected_run:int
+
+@app.delete('/api/sessions/{sid}')
+def delete_folder(sid:str,body:DeleteFolderInput,who:User=Depends(user),store=Depends(repo)):
+    valid_id(sid)
+    def remove(meta,rows):
+        if meta['version']!=body.expected_version:
+            raise Conflict('Folder changed. Refresh and confirm deletion again.')
+        meta.update(deleted=True,deleted_at=now(),deleted_by=who.username)
+        controls.log(meta,'folder_deleted',who.username,{'invoices':len(rows)})
+    store.atomic(who.uid,sid,remove)
+    return {'deleted':True}
+
+@app.delete('/api/sessions/{sid}/invoices/{iid}')
+def delete_invoice(sid:str,iid:str,body:DeleteInvoiceInput,who:User=Depends(user),store=Depends(repo)):
+    valid_id(sid);valid_id(iid)
+    def remove(meta,rows):
+        row=rows.get(iid)
+        if row is None: raise KeyError(iid)
+        if row['accepted']: raise Conflict('Approved invoices cannot be deleted individually; their approval and PO consumption must be preserved.')
+        if row['run']!=body.expected_run: raise Conflict('Invoice changed. Refresh and confirm deletion again.')
+        row.update(deleted=True,deleted_at=now(),execution='cancelled',run=row['run']+1,lease_until=0)
+        audit(row,'invoice_deleted',who.username)
+        controls.log(meta,'invoice_deleted',who.username,{'invoice':iid,'filename':row['filename']})
+        visible={k:r for k,r in rows.items() if not r.get('deleted')}
+        for other in visible.values():
+            if not other['accepted'] and other.get('data') and other['execution']=='completed':
+                decision(meta,visible,other)
+                audit(other,'invoice_removed_recheck',who.username,{'removed_invoice':iid})
+    store.atomic(who.uid,sid,remove)
+    return {'deleted':True}
+
 @app.get('/api/sessions/{sid}/invoices/{iid}')
 def invoice(sid:str,iid:str,who:User=Depends(user),store=Depends(repo)):
     return controls.public(get_row(store,who,sid,iid)[1])
@@ -696,6 +732,9 @@ class TaskInput(BaseModel):
 async def worker(body:TaskInput,store=Depends(repo)):
     try:
         await process(store,body.uid,body.sid,body.iid,body.run,body.local_only)
+    except KeyError:
+        # Deleted folders and removed invoices must not be resurrected or retried.
+        return {'ok':True}
     except Conflict:
         # Non-2xx lets Cloud Tasks redeliver if another worker's lease expires.
         raise HTTPException(503,'Processing lease is active. Retry later.')
