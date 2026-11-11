@@ -32,4 +32,3 @@ const result=runInNewContext(source+`
  stopReviewLive();assert.equal(timers.size,0);
 })()`,{document,assert,console,structuredClone,timers,setTimeout:(fn,delay)=>{timers.set(++timerId,{fn,delay});return timerId;},clearTimeout:id=>timers.delete(id)});
 Promise.resolve(result).then(()=>console.log('Live review completion, conflicts, focus, serial requests, cleanup, ordering and reconnect checks passed')).catch(error=>{console.error(error);process.exitCode=1;});
-
