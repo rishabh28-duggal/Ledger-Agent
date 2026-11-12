@@ -276,6 +276,10 @@ summary:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
 #auth-form .micro { margin: 6px 0 0; }
 #auth-form .error { margin:12px 0;color:var(--status-blocked-text); }
 #auth-form .error:empty {display:none;}
+/* Keep submit separate even when validation and signup help are hidden. */
+#auth-submit { display:block; margin-top:16px; }
+.password-control input { border-radius:calc(var(--radius-control) - 1px) 0 0 calc(var(--radius-control) - 1px); }
+.password-control button { border-radius:0 calc(var(--radius-control) - 1px) calc(var(--radius-control) - 1px) 0; }
 .entry-error { font-size: 14px; color: var(--status-blocked-text); background: var(--status-blocked-bg); border-left: 3px solid var(--status-blocked-text); padding: 12px; margin: 16px 0 0; overflow-wrap: anywhere; }
 .demo-starter { display: flex; justify-content: space-between; align-items: center; gap: 16px; border-top: 1px solid var(--border); padding-top: 20px; margin-top: 22px; }
 .demo-starter h3 { margin: 0 0 4px; }
